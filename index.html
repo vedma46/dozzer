@@ -30,7 +30,7 @@ const Y_CHANNEL_BOTTOM=H-DOCK_H; // низ синей зоны
 const Y_BOTTOM=Y_CHANNEL_BOTTOM+DOCK_H;
 
 // dozer
-const DZ_W=CHANNEL_W*0.6, DZ_H=360, DZ_X=W/2-DZ_W/2;
+const DZ_W=CHANNEL_W*0.6, DZ_H=1920, DZ_X=W/2-DZ_W/2;
 const DZ_PUSH_V=320, DZ_BACK_V=380;
 const DZ_TOP_MAX=Y_CHANNEL_BOTTOM, DZ_TOP_MIN=H+80;
 const DZ_MEGA_TARGET=H/2;        // цель «мега-вылазки»
@@ -79,11 +79,11 @@ let dzMode='normal';            // 'normal' | 'mega_push' | 'mega_back'
 let megaQueue=0;
 
 // банк + реген
-let bank=50, regenActive=false, regenLeft=0, regenTick=0;
+let bank=101, regenActive=false, regenLeft=0, regenTick=0;
 
 // спец-монеты: каждые 15 сек, с накоплением
-const RED_SPAWN_INTERVAL   = 15;
-const GREEN_SPAWN_INTERVAL = 15;
+const RED_SPAWN_INTERVAL   = 60;
+const GREEN_SPAWN_INTERVAL = 30;
 let timeElapsed=0, nextRedAt=0, nextGreenAt=0;
 
 // ---------- Utils ----------
@@ -327,10 +327,10 @@ function drawTopBar(){
   g.addColorStop(0,"#2fd144"); g.addColorStop(1,"#1a6f2f");
   ctx.fillStyle=g; ctx.fillRect(0,0,W,TOP);
 
-  ctx.fillStyle="#fff"; ctx.textAlign="center"; ctx.textBaseline="middle";
-  ctx.font="bold 64px system-ui";
-  if(regenActive) ctx.fillText(`COINS: ${bank}  (${regenLeft}s)`, W/2, TOP/2);
-  else            ctx.fillText(`COINS: ${bank}`,               W/2, TOP/2);
+  ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.textBaseline="middle";
+  ctx.font="bold 33px system-ui";
+  if(regenActive) ctx.fillText(`COINS: ${bank}  (${regenLeft}s)`, 40, TOP/2);
+  else            ctx.fillText(`COINS: ${bank}`,               40, TOP/2);
 }
 
 function drawChannel(){ ctx.fillStyle="#0b4f8a"; ctx.fillRect(X_LEFT,Y_TOP,CHANNEL_W,Y_CHANNEL_BOTTOM-Y_TOP); }

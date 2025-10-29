@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dozer — guided coins + RED/GREEN</title>
+<title>Dozer — guided coins + RED/GREEN + Tutorial spotlight</title>
 <style>
   html,body{margin:0;padding:0;background:#000;overflow:hidden;width:100%;height:100%}
   #gameCanvas{position:absolute;top:0;left:0;width:1080px;height:1920px;transform-origin:top left;display:block;background:#000}
@@ -21,7 +21,7 @@ const BASE_R=64;                 // базовая геометрия поля
 const D=BASE_R*2;
 const CHANNEL_W=D*7;
 const X_LEFT=W/2-CHANNEL_W/2;
-const X_RIGHT=X_LEFT+CHANNEL_W;
+theX_RIGHT=X_LEFT+CHANNEL_W; const X_RIGHT=theX_RIGHT;
 const X_CENTER=(X_LEFT+X_RIGHT)/2;
 const Y_TOP=TOP;
 
@@ -29,7 +29,7 @@ const DOCK_H=260;
 const Y_CHANNEL_BOTTOM=H-DOCK_H; // низ синей зоны
 const Y_BOTTOM=Y_CHANNEL_BOTTOM+DOCK_H;
 
-// dozer
+// dozer (плунжер)
 const DZ_W=CHANNEL_W*0.6, DZ_H=1920, DZ_X=W/2-DZ_W/2;
 const DZ_PUSH_V=320, DZ_BACK_V=380;
 const DZ_TOP_MAX=Y_CHANNEL_BOTTOM, DZ_TOP_MIN=H+80;
@@ -40,7 +40,7 @@ const LEFT_BLOCK ={x:X_LEFT,    y:Y_CHANNEL_BOTTOM, w:DZ_X-X_LEFT,        h:DOCK
 const RIGHT_BLOCK={x:DZ_X+DZ_W, y:Y_CHANNEL_BOTTOM, w:X_RIGHT-(DZ_X+DZ_W),h:DOCK_H};
 const POCKET={x:DZ_X, y:Y_CHANNEL_BOTTOM, w:DZ_W, h:DOCK_H};
 
-// боковые ямы (вдоль краёв экрана)
+// боковые ямы
 const PIT_TOP   = Y_TOP + D*1.4;
 const PIT_BOTTOM= Y_CHANNEL_BOTTOM - D*4;
 const PIT_H     = Math.max(100, PIT_BOTTOM-PIT_TOP);
@@ -81,10 +81,13 @@ let megaQueue=0;
 // банк + реген
 let bank=101, regenActive=false, regenLeft=0, regenTick=0;
 
-// спец-монеты: каждые 15 сек, с накоплением
+// спец-монеты
 const RED_SPAWN_INTERVAL   = 60;
 const GREEN_SPAWN_INTERVAL = 30;
 let timeElapsed=0, nextRedAt=0, nextGreenAt=0;
+
+// ---------- Tutorial (один шаг: прожектор на дозер) ----------
+const tutorial = { visible:true };
 
 // ---------- Utils ----------
 function resize(){
@@ -129,6 +132,19 @@ function trySpawn(e){
   if(bank<=0){ startRegen(); return; }
   bank--; spawnCoinAt(x,y,false,false); if(bank===0) startRegen();
 }
+
+// ввод с учётом обучения
+function handleInput(e){
+  if(tutorial.visible){
+    // разрешаем тап только по карману; после успешной кладки — выключаем обучение
+    const before=bank;
+    trySpawn(e);
+    if(bank<before){ tutorial.visible=false; }
+    return;
+  }
+  trySpawn(e);
+}
+
 function initCoins(){
   for(let i=0;i<40;i++){
     coins.push({
@@ -178,7 +194,6 @@ function circleVsSegment(c, A,B, push=8){
 
 // ---------- Update ----------
 function updDozer(dt){
-  // мега-вылазка
   if(dzMode==='mega_push'){
     dzTop -= DZ_PUSH_V*dt*1.15;
     if(dzTop < DZ_MEGA_TARGET){ dzTop=DZ_MEGA_TARGET; dzMode='mega_back'; }
@@ -193,7 +208,6 @@ function updDozer(dt){
     }
     return;
   }
-  // обычный цикл
   if(dzPhase==='push'){ dzTop-=DZ_PUSH_V*dt; if(dzTop<DZ_TOP_MAX){dzTop=DZ_TOP_MAX; dzPhase='back';}}
   else{ dzTop+=DZ_BACK_V*dt; if(dzTop>DZ_TOP_MIN){dzTop=DZ_TOP_MIN; dzPhase='push';}}
 }
@@ -207,7 +221,6 @@ function spawnSixPocketCoins(){
 }
 
 function updCoins(dt){
-  // таймеры спец-монет (накопление), старт с t=0
   timeElapsed += dt;
   while(timeElapsed >= nextRedAt){
     const rx = rand(X_LEFT+COIN_R_PHYS, X_RIGHT-COIN_R_PHYS);
@@ -224,31 +237,22 @@ function updCoins(dt){
 
   for(const c of coins){
     c.vy += GRAVITY*dt;
-
-    // лёгкая направляющая к центру в основной зоне
     if(c.y>Y_TOP+(Y_CHANNEL_BOTTOM-Y_TOP)*0.35 && c.y<Y_CHANNEL_BOTTOM){
       c.vx += (X_CENTER - c.x) * (CENTER_PULL*dt);
     }
-
     c.y += c.vy*dt; c.x += c.vx*dt;
     c.vx *= Math.pow(FRICTION_X, 60*dt);
     c.vy *= Math.pow(FRICTION_Y, 60*dt);
 
-    // сбор у верхней кромки (центром)
     if(c.y<=Y_TOP){ c._collect=true; spawnParticles(c.x,c.y); continue; }
-
-    // «пол» чёрной зоны
     if(c.y + c.rPhys > Y_BOTTOM){ c.y=Y_BOTTOM-c.rPhys; c.vy*=-0.15; }
   }
 
-  // обработка сбора
   for(let i=coins.length-1;i>=0;i--){
     const c=coins[i];
     if(!c._collect) continue;
-
     if(c.isRed){
-      if(dzMode==='normal'){ dzMode='mega_push'; }
-      else { megaQueue++; }
+      if(dzMode==='normal'){ dzMode='mega_push'; } else { megaQueue++; }
     }else if(c.isGreen){
       spawnSixPocketCoins();
     }else{
@@ -259,35 +263,20 @@ function updCoins(dt){
 }
 
 function collideEnv(){
-  // dozer
   for(const c of coins) circleVsRect_UpwardPush(c, DZ_X, dzTop, DZ_W, DZ_H);
-
-  // горловина — диагонали
   for(const c of coins){
     circleVsSegment(c, LT_INNER, LT_WALL, 7);
     circleVsSegment(c, RT_INNER, RT_WALL, 7);
   }
-
-  // нижние красные блоки
   for(const c of coins){
     circleVsRect(c, LEFT_BLOCK.x,LEFT_BLOCK.y,LEFT_BLOCK.w,LEFT_BLOCK.h,6);
     circleVsRect(c, RIGHT_BLOCK.x,RIGHT_BLOCK.y,RIGHT_BLOCK.w,RIGHT_BLOCK.h,6);
   }
-
-  // боковые стены + ямы
   for(const c of coins){
-    // слева
-    if(c.y>=PIT_LEFT.y && c.y<=PIT_LEFT.y+PIT_LEFT.h){
-      if(c.x<=X_LEFT) c._burn=true;
-    }else{
-      if(c.x - c.rPhys < X_LEFT){ c.x=X_LEFT+c.rPhys; c.vx*=-0.08; }
-    }
-    // справа
-    if(c.y>=PIT_RIGHT.y && c.y<=PIT_RIGHT.y+PIT_RIGHT.h){
-      if(c.x>=X_RIGHT) c._burn=true;
-    }else{
-      if(c.x + c.rPhys > X_RIGHT){ c.x=X_RIGHT-c.rPhys; c.vx*=-0.08; }
-    }
+    if(c.y>=PIT_LEFT.y && c.y<=PIT_LEFT.y+PIT_LEFT.h){ if(c.x<=X_LEFT) c._burn=true; }
+    else { if(c.x - c.rPhys < X_LEFT){ c.x=X_LEFT+c.rPhys; c.vx*=-0.08; } }
+    if(c.y>=PIT_RIGHT.y && c.y<=PIT_RIGHT.y+PIT_RIGHT.h){ if(c.x>=X_RIGHT) c._burn=true; }
+    else { if(c.x + c.rPhys > X_RIGHT){ c.x=X_RIGHT-c.rPhys; c.vx*=-0.08; } }
   }
   for(let i=coins.length-1;i>=0;i--) if(coins[i]._burn) coins.splice(i,1);
 }
@@ -324,7 +313,7 @@ function updateRegen(dt){
 // ---------- Draw ----------
 function drawTopBar(){
   const g=ctx.createLinearGradient(0,0,0,TOP);
-  g.addColorStop(0,"#2fd144"); g.addColorStop(1,"#1a6f2f");
+  g.addColorStop(0,"#1b0f12"); g.addColorStop(1,"#6a1414");
   ctx.fillStyle=g; ctx.fillRect(0,0,W,TOP);
 
   ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.textBaseline="middle";
@@ -333,34 +322,32 @@ function drawTopBar(){
   else            ctx.fillText(`COINS: ${bank}`,               40, TOP/2);
 }
 
-function drawChannel(){ ctx.fillStyle="#0b4f8a"; ctx.fillRect(X_LEFT,Y_TOP,CHANNEL_W,Y_CHANNEL_BOTTOM-Y_TOP); }
+function drawChannel(){ ctx.fillStyle="#006ee9"; ctx.fillRect(X_LEFT,Y_TOP,CHANNEL_W,Y_CHANNEL_BOTTOM-Y_TOP); }
 
 function drawSideWallsAndPits(){
-  ctx.fillStyle="#ff4f4f";
+  ctx.fillStyle="#c82b2e";
   ctx.fillRect(0,TOP, X_LEFT, H-TOP);
   ctx.fillRect(X_RIGHT,TOP, W-X_RIGHT, H-TOP);
-
-  // визуальные чёрные карманы
   ctx.fillStyle="#000";
   ctx.fillRect(0, PIT_LEFT.y, PIT_VIS_W, PIT_LEFT.h);
-  ctx.fillRect(W-PIT_VIS_W, PIT_RIGHT.y, PIT_VIS_W, PIT_RIGHT.h); // <-- ширина исправлена
+  ctx.fillRect(W-PIT_VIS_W, PIT_RIGHT.y, PIT_VIS_W, PIT_RIGHT.h);
 }
 
 function drawCorners(){
-  ctx.fillStyle="#b01779";
+  ctx.fillStyle="#ff7b44";
   ctx.beginPath(); ctx.moveTo(LT_INNER.x,LT_INNER.y); ctx.lineTo(LT_CORNER.x,LT_CORNER.y); ctx.lineTo(LT_WALL.x,LT_WALL.y); ctx.closePath(); ctx.fill();
   ctx.beginPath(); ctx.moveTo(RT_INNER.x,RT_INNER.y); ctx.lineTo(RT_CORNER.x,RT_CORNER.y); ctx.lineTo(RT_WALL.x,RT_WALL.y); ctx.closePath(); ctx.fill();
 }
 
 function drawDock(){
-  ctx.fillStyle="#ff4f4f";
+  ctx.fillStyle="#ff2f2f";
   ctx.fillRect(LEFT_BLOCK.x, LEFT_BLOCK.y, LEFT_BLOCK.w, LEFT_BLOCK.h);
   ctx.fillRect(RIGHT_BLOCK.x,RIGHT_BLOCK.y,RIGHT_BLOCK.w,RIGHT_BLOCK.h);
-  ctx.fillStyle="#000";
+  ctx.fillStyle="#152623";
   ctx.fillRect(POCKET.x, POCKET.y, POCKET.w, POCKET.h);
 }
 
-function drawDozer(){ ctx.fillStyle="#6aff1f"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H); }
+function drawDozer(){ ctx.fillStyle="#75f80c"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H); }
 
 function drawCoins(){
   for(const c of coins){
@@ -378,6 +365,47 @@ function drawCoins(){
       ctx.lineWidth=3; ctx.strokeStyle="#b86a00"; ctx.stroke();
     }
   }
+}
+
+// --- Tutorial spotlight (маска с «дыркой» на дозере и текст) ---
+function drawRoundedHole(x,y,w,h,r=22){
+  // затемнение
+  ctx.fillStyle="rgba(0,0,0,0.8)";
+  ctx.fillRect(0,0,W,H);
+
+  // «дырка» по дозеру
+  ctx.globalCompositeOperation="destination-out";
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y, x+w,y+r, r);
+  ctx.arcTo(x+w,y+h, x+w-r,y+h, r);
+  ctx.arcTo(x,y+h, x,y+h-r, r);
+  ctx.arcTo(x,y, x+r,y, r);
+  ctx.closePath();
+  ctx.fill();
+
+  // лёгкое свечение контура
+  ctx.globalCompositeOperation="source-over";
+  ctx.strokeStyle="rgba(140,255,120,0.9)";
+  ctx.lineWidth=6;
+  ctx.shadowColor="rgba(80,255,120,0.55)";
+  ctx.shadowBlur=24;
+  ctx.stroke();
+  ctx.shadowBlur=0;
+}
+
+function drawTutorial(){
+  if(!tutorial.visible) return;
+
+  // прожектор следует за дозером (динамический прямоугольник)
+  drawRoundedHole(DZ_X, dzTop, DZ_W, DZ_H, 24);
+
+  // подпись для игрока (про карман — где класть монеты)
+  ctx.fillStyle="#ffffff";
+  ctx.font="bold 64px system-ui";
+  ctx.textAlign="center";
+  ctx.textBaseline="bottom";
+  ctx.fillText("Клади монеты сюда!", W/2, POCKET.y - 28);
 }
 
 // ---------- Loop ----------
@@ -399,14 +427,15 @@ function draw(){
   drawDozer();
   drawCoins();
   drawParticles();
+  drawTutorial();
 }
 
 let last=performance.now();
 function loop(t){ const dt=(t-last)/1000; last=t; update(dt); draw(); requestAnimationFrame(loop); }
 
 // ---------- Boot ----------
-cvs.addEventListener('mousedown', trySpawn);
-cvs.addEventListener('touchstart', trySpawn, {passive:false});
+cvs.addEventListener('mousedown', handleInput);
+cvs.addEventListener('touchstart', handleInput, {passive:false});
 initCoins();
 addEventListener('load', ()=>{ resize(); last=performance.now(); requestAnimationFrame(loop); });
 addEventListener('resize', resize);

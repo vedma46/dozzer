@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dozer — guided coins + RED/GREEN + Tutorial spotlight</title>
+<title>Dozer — guided coins + RED/GREEN + Tutorial spotlight + TopBar FX (fix)</title>
 <style>
   html,body{margin:0;padding:0;background:#000;overflow:hidden;width:100%;height:100%}
   #gameCanvas{position:absolute;top:0;left:0;width:1080px;height:1920px;transform-origin:top left;display:block;background:#000}
@@ -17,30 +17,30 @@
 // ---------- Layout ----------
 const W=1080,H=1920,TOP=140;
 
-const BASE_R=64;                 // базовая геометрия поля
+const BASE_R=64;
 const D=BASE_R*2;
 const CHANNEL_W=D*7;
 const X_LEFT=W/2-CHANNEL_W/2;
-theX_RIGHT=X_LEFT+CHANNEL_W; const X_RIGHT=theX_RIGHT;
+const X_RIGHT=X_LEFT+CHANNEL_W;
 const X_CENTER=(X_LEFT+X_RIGHT)/2;
 const Y_TOP=TOP;
 
 const DOCK_H=260;
-const Y_CHANNEL_BOTTOM=H-DOCK_H; // низ синей зоны
+const Y_CHANNEL_BOTTOM=H-DOCK_H;
 const Y_BOTTOM=Y_CHANNEL_BOTTOM+DOCK_H;
 
-// dozer (плунжер)
+// dozer
 const DZ_W=CHANNEL_W*0.6, DZ_H=1920, DZ_X=W/2-DZ_W/2;
 const DZ_PUSH_V=320, DZ_BACK_V=380;
 const DZ_TOP_MAX=Y_CHANNEL_BOTTOM, DZ_TOP_MIN=H+80;
-const DZ_MEGA_TARGET=H/2;        // цель «мега-вылазки»
+const DZ_MEGA_TARGET=H/2;
 
-// нижние блоки + карман
+// bottom blocks + pocket
 const LEFT_BLOCK ={x:X_LEFT,    y:Y_CHANNEL_BOTTOM, w:DZ_X-X_LEFT,        h:DOCK_H};
 const RIGHT_BLOCK={x:DZ_X+DZ_W, y:Y_CHANNEL_BOTTOM, w:X_RIGHT-(DZ_X+DZ_W),h:DOCK_H};
 const POCKET={x:DZ_X, y:Y_CHANNEL_BOTTOM, w:DZ_W, h:DOCK_H};
 
-// боковые ямы
+// side pits
 const PIT_TOP   = Y_TOP + D*1.4;
 const PIT_BOTTOM= Y_CHANNEL_BOTTOM - D*4;
 const PIT_H     = Math.max(100, PIT_BOTTOM-PIT_TOP);
@@ -48,7 +48,7 @@ const PIT_VIS_W = Math.min(100, X_LEFT-8);
 const PIT_LEFT  ={y:PIT_TOP,  h:PIT_H};
 const PIT_RIGHT ={y:PIT_TOP,  h:PIT_H};
 
-// 45° углы у горла
+// 45° corners
 const TRI=220;
 const LT_INNER ={x:DZ_X,      y:Y_CHANNEL_BOTTOM};
 const LT_CORNER={x:X_LEFT,    y:Y_CHANNEL_BOTTOM};
@@ -58,8 +58,8 @@ const RT_CORNER={x:X_RIGHT,   y:Y_CHANNEL_BOTTOM};
 const RT_WALL  ={x:X_RIGHT,   y:Y_CHANNEL_BOTTOM-TRI};
 
 // ---------- Coin size ----------
-const COIN_R_PHYS = 77;   // коллизии
-const COIN_R_DRAW = 77;   // отрисовка
+const COIN_R_PHYS = 77;
+const COIN_R_DRAW = 77;
 
 // ---------- Physics ----------
 const GRAVITY=0.48;
@@ -73,21 +73,67 @@ const CENTER_PULL=0.22;
 // ---------- State ----------
 const cvs=document.getElementById('gameCanvas'), ctx=cvs.getContext('2d');
 const coins=[], particles=[];
-let dzTop=H+80;
-let dzPhase='push';
-let dzMode='normal';            // 'normal' | 'mega_push' | 'mega_back'
+let dzTop=H+80, dzPhase='push';
+let dzMode='normal';  // 'normal' | 'mega_push' | 'mega_back'
 let megaQueue=0;
 
-// банк + реген
 let bank=101, regenActive=false, regenLeft=0, regenTick=0;
 
-// спец-монеты
+// special coins timers
 const RED_SPAWN_INTERVAL   = 60;
 const GREEN_SPAWN_INTERVAL = 30;
 let timeElapsed=0, nextRedAt=0, nextGreenAt=0;
 
-// ---------- Tutorial (один шаг: прожектор на дозер) ----------
+// ---------- Tutorial ----------
 const tutorial = { visible:true };
+
+// ---------- TopBar FX ----------
+let barAnimT = 0;
+const BAR_ANIM_DUR = 1.2;
+const twinkles = [];
+const barBursts = [];
+const TWINKLE_COUNT = 22;
+
+function initTopBarStars(){
+  twinkles.length=0;
+  for(let i=0;i<TWINKLE_COUNT;i++){
+    twinkles.push({
+      x: Math.random()*W,
+      y: Math.random()*TOP,
+      r: 1.5 + Math.random()*2.2,
+      phase: Math.random()*Math.PI*2,
+      speed: 1.2 + Math.random()*1.8,
+      drift: (Math.random()*2-1)*10
+    });
+  }
+}
+function triggerBarFX(x){
+  barAnimT = BAR_ANIM_DUR;
+  for(let i=0;i<24;i++){
+    barBursts.push({
+      x: x + (Math.random()*2-1)*20,
+      y: Y_TOP - 6 + Math.random()*12,
+      vx: (Math.random()*2-1)*140,
+      vy: -40 - Math.random()*120,
+      life: 1,
+      r: 2 + Math.random()*3
+    });
+  }
+}
+function updateTopBarFX(dt){
+  if(barAnimT>0) barAnimT=Math.max(0,barAnimT-dt);
+  for(const s of twinkles){
+    s.phase += dt*s.speed;
+    s.x += s.drift*dt*0.2;
+    if(s.x<-10) s.x=W+10; if(s.x>W+10) s.x=-10;
+  }
+  for(const b of barBursts){
+    b.x+=b.vx*dt; b.y+=b.vy*dt;
+    b.vx*=0.98; b.vy*=0.98;
+    b.life-=1.6*dt;
+  }
+  for(let i=barBursts.length-1;i>=0;i--) if(barBursts[i].life<=0) barBursts.splice(i,1);
+}
 
 // ---------- Utils ----------
 function resize(){
@@ -123,7 +169,9 @@ function drawParticles(){
 
 // ---------- Coins ----------
 function spawnCoinAt(x,y,isRed=false,isGreen=false){
-  coins.push({x,y,rPhys:COIN_R_PHYS,vx:0,vy:0,isRed,isGreen});
+  const coin={x,y,rPhys:COIN_R_PHYS,vx:0,vy:0,isRed,isGreen};
+  if(isGreen){ coin.rPhys=COIN_R_PHYS*2; }
+  coins.push(coin);
 }
 function trySpawn(e){
   e.preventDefault();
@@ -132,11 +180,8 @@ function trySpawn(e){
   if(bank<=0){ startRegen(); return; }
   bank--; spawnCoinAt(x,y,false,false); if(bank===0) startRegen();
 }
-
-// ввод с учётом обучения
 function handleInput(e){
   if(tutorial.visible){
-    // разрешаем тап только по карману; после успешной кладки — выключаем обучение
     const before=bank;
     trySpawn(e);
     if(bank<before){ tutorial.visible=false; }
@@ -144,7 +189,6 @@ function handleInput(e){
   }
   trySpawn(e);
 }
-
 function initCoins(){
   for(let i=0;i<40;i++){
     coins.push({
@@ -157,6 +201,7 @@ function initCoins(){
       isGreen:false
     });
   }
+  initTopBarStars();
 }
 
 // ---------- Collision helpers ----------
@@ -229,8 +274,8 @@ function updCoins(dt){
     nextRedAt += RED_SPAWN_INTERVAL;
   }
   while(timeElapsed >= nextGreenAt){
-    const gx = rand(X_LEFT+COIN_R_PHYS, X_RIGHT-COIN_R_PHYS);
-    const gy = rand(Y_TOP+COIN_R_PHYS, Y_CHANNEL_BOTTOM-COIN_R_PHYS);
+    const gx = rand(X_LEFT+COIN_R_PHYS*2, X_RIGHT-COIN_R_PHYS*2);
+    const gy = rand(Y_TOP+COIN_R_PHYS*2, Y_CHANNEL_BOTTOM-COIN_R_PHYS*2);
     spawnCoinAt(gx, gy, false, true);
     nextGreenAt += GREEN_SPAWN_INTERVAL;
   }
@@ -244,7 +289,12 @@ function updCoins(dt){
     c.vx *= Math.pow(FRICTION_X, 60*dt);
     c.vy *= Math.pow(FRICTION_Y, 60*dt);
 
-    if(c.y<=Y_TOP){ c._collect=true; spawnParticles(c.x,c.y); continue; }
+    if(c.y<=Y_TOP){
+      c._collect=true;
+      spawnParticles(c.x,c.y);
+      triggerBarFX(c.x);
+      continue;
+    }
     if(c.y + c.rPhys > Y_BOTTOM){ c.y=Y_BOTTOM-c.rPhys; c.vy*=-0.15; }
   }
 
@@ -312,10 +362,51 @@ function updateRegen(dt){
 
 // ---------- Draw ----------
 function drawTopBar(){
-  const g=ctx.createLinearGradient(0,0,0,TOP);
-  g.addColorStop(0,"#1b0f12"); g.addColorStop(1,"#6a1414");
+  // базовый тёмно-красный градиент (как просил)
+  let g=ctx.createLinearGradient(0,0,0,TOP);
+  g.addColorStop(0,"#1b0f12");
+  g.addColorStop(1,"#6a1414");
   ctx.fillStyle=g; ctx.fillRect(0,0,W,TOP);
 
+  // перелив
+  if(barAnimT>0){
+    const t = 1 - (barAnimT / BAR_ANIM_DUR);
+    const shift = (Math.sin(t*Math.PI*2)+1)/2;
+    const gg = ctx.createLinearGradient(0,0,W,0);
+    gg.addColorStop(Math.max(0,0.00+shift*0.1), "#8b5cf6");
+    gg.addColorStop(Math.max(0,0.25+shift*0.1), "#60a5fa");
+    gg.addColorStop(Math.min(1,0.50+shift*0.1), "#ffffff");
+    gg.addColorStop(Math.min(1,0.75+shift*0.1), "#60a5fa");
+    gg.addColorStop(Math.min(1,1.00),           "#8b5cf6");
+    ctx.globalAlpha=0.65; ctx.fillStyle=gg; ctx.fillRect(0,0,W,TOP); ctx.globalAlpha=1;
+
+    const stripeX = (t*W*1.4) % (W+400) - 200;
+    const stripe = ctx.createLinearGradient(stripeX-120,0,stripeX+120,0);
+    stripe.addColorStop(0,"rgba(255,255,255,0)");
+    stripe.addColorStop(0.5,"rgba(255,255,255,0.9)");
+    stripe.addColorStop(1,"rgba(255,255,255,0)");
+    ctx.globalAlpha=0.35; ctx.fillStyle=stripe; ctx.fillRect(0,0,W,TOP); ctx.globalAlpha=1;
+  }
+
+  // твинклы и вспышки
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,TOP); ctx.clip();
+  for(const s of twinkles){
+    const a = 0.35 + 0.65*(0.5+0.5*Math.sin(s.phase));
+    ctx.globalAlpha=a; ctx.fillStyle="#ffffff";
+    ctx.fillRect(s.x - s.r/2, s.y - 0.5, s.r, 1);
+    ctx.fillRect(s.x - 0.5,   s.y - s.r/2, 1,  s.r);
+    ctx.beginPath(); ctx.arc(s.x,s.y,0.8,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  ctx.globalCompositeOperation="lighter";
+  for(const b of barBursts){
+    ctx.globalAlpha=Math.max(0,b.life);
+    ctx.fillStyle="#ffffff"; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalCompositeOperation="source-over";
+  ctx.restore();
+
+  // текст
   ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.textBaseline="middle";
   ctx.font="bold 33px system-ui";
   if(regenActive) ctx.fillText(`COINS: ${bank}  (${regenLeft}s)`, 40, TOP/2);
@@ -330,6 +421,7 @@ function drawSideWallsAndPits(){
   ctx.fillRect(X_RIGHT,TOP, W-X_RIGHT, H-TOP);
   ctx.fillStyle="#000";
   ctx.fillRect(0, PIT_LEFT.y, PIT_VIS_W, PIT_LEFT.h);
+  // <<< ФИКС: корректные width/height для правого кармана
   ctx.fillRect(W-PIT_VIS_W, PIT_RIGHT.y, PIT_VIS_W, PIT_RIGHT.h);
 }
 
@@ -351,29 +443,27 @@ function drawDozer(){ ctx.fillStyle="#75f80c"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H
 
 function drawCoins(){
   for(const c of coins){
+    const drawR = c.isGreen ? COIN_R_DRAW*2 : COIN_R_DRAW;
     if(c.isRed){
-      ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#ff2a2a"; ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,drawR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#ff2a2a"; ctx.beginPath(); ctx.arc(c.x,c.y,drawR,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#aa1010"; ctx.stroke();
     }else if(c.isGreen){
-      ctx.fillStyle="#0b3d0b"; ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#32ff72"; ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#0b3d0b"; ctx.beginPath(); ctx.arc(c.x,c.y+10,drawR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#32ff72"; ctx.beginPath(); ctx.arc(c.x,c.y,drawR,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#14a84a"; ctx.stroke();
     }else{
-      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,drawR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,drawR,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#b86a00"; ctx.stroke();
     }
   }
 }
 
-// --- Tutorial spotlight (маска с «дыркой» на дозере и текст) ---
+// Tutorial spotlight
 function drawRoundedHole(x,y,w,h,r=22){
-  // затемнение
   ctx.fillStyle="rgba(0,0,0,0.8)";
   ctx.fillRect(0,0,W,H);
-
-  // «дырка» по дозеру
   ctx.globalCompositeOperation="destination-out";
   ctx.beginPath();
   ctx.moveTo(x+r,y);
@@ -381,30 +471,17 @@ function drawRoundedHole(x,y,w,h,r=22){
   ctx.arcTo(x+w,y+h, x+w-r,y+h, r);
   ctx.arcTo(x,y+h, x,y+h-r, r);
   ctx.arcTo(x,y, x+r,y, r);
-  ctx.closePath();
-  ctx.fill();
-
-  // лёгкое свечение контура
+  ctx.closePath(); ctx.fill();
   ctx.globalCompositeOperation="source-over";
   ctx.strokeStyle="rgba(140,255,120,0.9)";
-  ctx.lineWidth=6;
-  ctx.shadowColor="rgba(80,255,120,0.55)";
-  ctx.shadowBlur=24;
-  ctx.stroke();
-  ctx.shadowBlur=0;
+  ctx.lineWidth=6; ctx.shadowColor="rgba(80,255,120,0.55)";
+  ctx.shadowBlur=24; ctx.stroke(); ctx.shadowBlur=0;
 }
-
 function drawTutorial(){
   if(!tutorial.visible) return;
-
-  // прожектор следует за дозером (динамический прямоугольник)
   drawRoundedHole(DZ_X, dzTop, DZ_W, DZ_H, 24);
-
-  // подпись для игрока (про карман — где класть монеты)
-  ctx.fillStyle="#ffffff";
-  ctx.font="bold 64px system-ui";
-  ctx.textAlign="center";
-  ctx.textBaseline="bottom";
+  ctx.fillStyle="#ffffff"; ctx.font="bold 64px system-ui";
+  ctx.textAlign="center"; ctx.textBaseline="bottom";
   ctx.fillText("Клади монеты сюда!", W/2, POCKET.y - 28);
 }
 
@@ -416,6 +493,7 @@ function update(dt){
   separateCoins();
   updParticles(dt);
   updateRegen(dt);
+  updateTopBarFX(dt);
 }
 function draw(){
   ctx.clearRect(0,0,W,H);

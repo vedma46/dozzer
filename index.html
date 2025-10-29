@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dozer — guided coins + RED bonus (minute start & random field)</title>
+<title>Dozer — guided coins + RED/GREEN</title>
 <style>
   html,body{margin:0;padding:0;background:#000;overflow:hidden;width:100%;height:100%}
   #gameCanvas{position:absolute;top:0;left:0;width:1080px;height:1920px;transform-origin:top left;display:block;background:#000}
@@ -17,7 +17,7 @@
 // ---------- Layout ----------
 const W=1080,H=1920,TOP=140;
 
-const BASE_R=64;      // базовый радиус для геометрии поля (не трогаем)
+const BASE_R=64;                 // базовая геометрия поля
 const D=BASE_R*2;
 const CHANNEL_W=D*7;
 const X_LEFT=W/2-CHANNEL_W/2;
@@ -26,21 +26,21 @@ const X_CENTER=(X_LEFT+X_RIGHT)/2;
 const Y_TOP=TOP;
 
 const DOCK_H=260;
-const Y_CHANNEL_BOTTOM=H-DOCK_H;     // низ синей зоны (горло перед дозером)
+const Y_CHANNEL_BOTTOM=H-DOCK_H; // низ синей зоны
 const Y_BOTTOM=Y_CHANNEL_BOTTOM+DOCK_H;
 
 // dozer
 const DZ_W=CHANNEL_W*0.6, DZ_H=360, DZ_X=W/2-DZ_W/2;
 const DZ_PUSH_V=320, DZ_BACK_V=380;
 const DZ_TOP_MAX=Y_CHANNEL_BOTTOM, DZ_TOP_MIN=H+80;
-const DZ_MEGA_TARGET = H/2;          // высота «мега-вылазки»
+const DZ_MEGA_TARGET=H/2;        // цель «мега-вылазки»
 
 // нижние блоки + карман
 const LEFT_BLOCK ={x:X_LEFT,    y:Y_CHANNEL_BOTTOM, w:DZ_X-X_LEFT,        h:DOCK_H};
 const RIGHT_BLOCK={x:DZ_X+DZ_W, y:Y_CHANNEL_BOTTOM, w:X_RIGHT-(DZ_X+DZ_W),h:DOCK_H};
 const POCKET={x:DZ_X, y:Y_CHANNEL_BOTTOM, w:DZ_W, h:DOCK_H};
 
-// боковые ямы
+// боковые ямы (вдоль краёв экрана)
 const PIT_TOP   = Y_TOP + D*1.4;
 const PIT_BOTTOM= Y_CHANNEL_BOTTOM - D*4;
 const PIT_H     = Math.max(100, PIT_BOTTOM-PIT_TOP);
@@ -58,14 +58,14 @@ const RT_CORNER={x:X_RIGHT,   y:Y_CHANNEL_BOTTOM};
 const RT_WALL  ={x:X_RIGHT,   y:Y_CHANNEL_BOTTOM-TRI};
 
 // ---------- Coin size ----------
-const COIN_R_PHYS = 77;  // физический радиус (коллизии)
-const COIN_R_DRAW = 77;  // визуальный радиус
+const COIN_R_PHYS = 77;   // коллизии
+const COIN_R_DRAW = 77;   // отрисовка
 
 // ---------- Physics ----------
-const GRAVITY=0.28;
+const GRAVITY=0.48;
 const FRICTION_X=0.925;
 const FRICTION_Y=0.985;
-const CONTACT_DAMP=0.975;
+const CONTACT_DAMP=1.0;
 const CONTACT_STIFF=0.26;
 const SIDE_IMP=1.0;
 const CENTER_PULL=0.22;
@@ -74,17 +74,17 @@ const CENTER_PULL=0.22;
 const cvs=document.getElementById('gameCanvas'), ctx=cvs.getContext('2d');
 const coins=[], particles=[];
 let dzTop=H+80;
-let dzPhase='push';      // normal-cycle phase
-let dzMode='normal';     // 'normal' | 'mega_push' | 'mega_back'
+let dzPhase='push';
+let dzMode='normal';            // 'normal' | 'mega_push' | 'mega_back'
+let megaQueue=0;
 
-// счётчик и реген
+// банк + реген
 let bank=50, regenActive=false, regenLeft=0, regenTick=0;
 
-// красная монета: спавн в НАЧАЛЕ каждой минуты
-const RED_SPAWN_INTERVAL = 60; // сек
-let timeElapsed = 0;           // общее время игры
-let nextRedAt   = 0;           // следующая «минутная» отметка (0, 60, 120, …)
-let redPresent  = false;       // красная сейчас на поле?
+// спец-монеты: каждые 15 сек, с накоплением
+const RED_SPAWN_INTERVAL   = 15;
+const GREEN_SPAWN_INTERVAL = 15;
+let timeElapsed=0, nextRedAt=0, nextGreenAt=0;
 
 // ---------- Utils ----------
 function resize(){
@@ -119,16 +119,15 @@ function drawParticles(){
 }
 
 // ---------- Coins ----------
-function spawnCoinAt(x,y,isRed=false){
-  coins.push({x,y,rPhys:COIN_R_PHYS,vx:0,vy:0,isRed});
-  if(isRed) redPresent = true;
+function spawnCoinAt(x,y,isRed=false,isGreen=false){
+  coins.push({x,y,rPhys:COIN_R_PHYS,vx:0,vy:0,isRed,isGreen});
 }
 function trySpawn(e){
   e.preventDefault();
   const {x,y}=toGame(e);
   if(x<POCKET.x||x>POCKET.x+POCKET.w||y<POCKET.y||y>POCKET.y+POCKET.h) return;
   if(bank<=0){ startRegen(); return; }
-  bank--; spawnCoinAt(x,y,false); if(bank===0) startRegen();
+  bank--; spawnCoinAt(x,y,false,false); if(bank===0) startRegen();
 }
 function initCoins(){
   for(let i=0;i<40;i++){
@@ -138,7 +137,8 @@ function initCoins(){
       rPhys:COIN_R_PHYS,
       vx:rand(-20,20),
       vy:rand(-15,15),
-      isRed:false
+      isRed:false,
+      isGreen:false
     });
   }
 }
@@ -151,8 +151,7 @@ function circleVsRect_UpwardPush(c, rx,ry,rw,rh){
   if(d2<r2){
     const d=Math.sqrt(d2)||0.0001, ov=c.rPhys-d, nx=dx/d, ny=dy/d;
     c.x+=nx*ov; c.y+=ny*ov;
-    const pushX = nx*4;
-    const pushY = Math.max(0, ny)*22;
+    const pushX=nx*4, pushY=Math.max(0,ny)*22;
     c.vx+=pushX; c.vy+=pushY;
     c.vx*=CONTACT_DAMP; c.vy*=CONTACT_DAMP;
   }
@@ -179,7 +178,7 @@ function circleVsSegment(c, A,B, push=8){
 
 // ---------- Update ----------
 function updDozer(dt){
-  // «Мега-вылазка» после красной монеты
+  // мега-вылазка
   if(dzMode==='mega_push'){
     dzTop -= DZ_PUSH_V*dt*1.15;
     if(dzTop < DZ_MEGA_TARGET){ dzTop=DZ_MEGA_TARGET; dzMode='mega_back'; }
@@ -187,62 +186,75 @@ function updDozer(dt){
   }
   if(dzMode==='mega_back'){
     dzTop += DZ_BACK_V*dt*1.15;
-    if(dzTop > DZ_TOP_MIN){ dzTop=DZ_TOP_MIN; dzMode='normal'; dzPhase='push'; }
+    if(dzTop > DZ_TOP_MIN){
+      dzTop=DZ_TOP_MIN;
+      if(megaQueue>0){ megaQueue--; dzMode='mega_push'; }
+      else { dzMode='normal'; dzPhase='push'; }
+    }
     return;
   }
-
-  // Обычный цикл
+  // обычный цикл
   if(dzPhase==='push'){ dzTop-=DZ_PUSH_V*dt; if(dzTop<DZ_TOP_MAX){dzTop=DZ_TOP_MAX; dzPhase='back';}}
   else{ dzTop+=DZ_BACK_V*dt; if(dzTop>DZ_TOP_MIN){dzTop=DZ_TOP_MIN; dzPhase='push';}}
 }
 
+function spawnSixPocketCoins(){
+  for(let i=0;i<6;i++){
+    const x = rand(POCKET.x+COIN_R_PHYS, POCKET.x+POCKET.w-COIN_R_PHYS);
+    const y = rand(POCKET.y+COIN_R_PHYS, POCKET.y+POCKET.h-COIN_R_PHYS);
+    coins.push({x,y,rPhys:COIN_R_PHYS,vx:rand(-10,10),vy:rand(-5,5),isRed:false,isGreen:false});
+  }
+}
+
 function updCoins(dt){
-  // время и спавн красной монеты в НАЧАЛЕ минуты
+  // таймеры спец-монет (накопление), старт с t=0
   timeElapsed += dt;
-  if(!redPresent && timeElapsed >= nextRedAt){
-    // попытка спавна: строго в синем поле (рандом по всей синей области)
-    const rx = rand(X_LEFT + COIN_R_PHYS, X_RIGHT - COIN_R_PHYS);
-    const ry = rand(Y_TOP + COIN_R_PHYS, Y_CHANNEL_BOTTOM - COIN_R_PHYS);
-    spawnCoinAt(rx, ry, true);
-    nextRedAt += RED_SPAWN_INTERVAL; // следующая минута
+  while(timeElapsed >= nextRedAt){
+    const rx = rand(X_LEFT+COIN_R_PHYS, X_RIGHT-COIN_R_PHYS);
+    const ry = rand(Y_TOP+COIN_R_PHYS, Y_CHANNEL_BOTTOM-COIN_R_PHYS);
+    spawnCoinAt(rx, ry, true, false);
+    nextRedAt += RED_SPAWN_INTERVAL;
+  }
+  while(timeElapsed >= nextGreenAt){
+    const gx = rand(X_LEFT+COIN_R_PHYS, X_RIGHT-COIN_R_PHYS);
+    const gy = rand(Y_TOP+COIN_R_PHYS, Y_CHANNEL_BOTTOM-COIN_R_PHYS);
+    spawnCoinAt(gx, gy, false, true);
+    nextGreenAt += GREEN_SPAWN_INTERVAL;
   }
 
   for(const c of coins){
-    c.vy+=GRAVITY*dt;
+    c.vy += GRAVITY*dt;
 
-    // лёгкая притяжка к центру в основной синей зоне
+    // лёгкая направляющая к центру в основной зоне
     if(c.y>Y_TOP+(Y_CHANNEL_BOTTOM-Y_TOP)*0.35 && c.y<Y_CHANNEL_BOTTOM){
       c.vx += (X_CENTER - c.x) * (CENTER_PULL*dt);
     }
 
     c.y += c.vy*dt; c.x += c.vx*dt;
-
     c.vx *= Math.pow(FRICTION_X, 60*dt);
     c.vy *= Math.pow(FRICTION_Y, 60*dt);
 
-    // сбор (центром) у верхней зелёной
-    if(c.y<=Y_TOP){
-      spawnParticles(c.x,c.y);
-      c._collect=true;
-      continue;
-    }
+    // сбор у верхней кромки (центром)
+    if(c.y<=Y_TOP){ c._collect=true; spawnParticles(c.x,c.y); continue; }
 
-    // пол (низ чёрной зоны)
+    // «пол» чёрной зоны
     if(c.y + c.rPhys > Y_BOTTOM){ c.y=Y_BOTTOM-c.rPhys; c.vy*=-0.15; }
   }
 
   // обработка сбора
   for(let i=coins.length-1;i>=0;i--){
     const c=coins[i];
-    if(c._collect){
-      if(c.isRed){
-        redPresent = false;
-        dzMode = 'mega_push';
-      }else{
-        bank++; if(bank>0){regenActive=false;}
-      }
-      coins.splice(i,1);
+    if(!c._collect) continue;
+
+    if(c.isRed){
+      if(dzMode==='normal'){ dzMode='mega_push'; }
+      else { megaQueue++; }
+    }else if(c.isGreen){
+      spawnSixPocketCoins();
+    }else{
+      bank++; if(bank>0) regenActive=false;
     }
+    coins.splice(i,1);
   }
 }
 
@@ -250,7 +262,7 @@ function collideEnv(){
   // dozer
   for(const c of coins) circleVsRect_UpwardPush(c, DZ_X, dzTop, DZ_W, DZ_H);
 
-  // углы
+  // горловина — диагонали
   for(const c of coins){
     circleVsSegment(c, LT_INNER, LT_WALL, 7);
     circleVsSegment(c, RT_INNER, RT_WALL, 7);
@@ -258,7 +270,7 @@ function collideEnv(){
 
   // нижние красные блоки
   for(const c of coins){
-    circleVsRect(c, LEFT_BLOCK.x,LEFT_BLOCK.y,LEFT_BLOCK.w,LEFT_BLOCK.h, 6);
+    circleVsRect(c, LEFT_BLOCK.x,LEFT_BLOCK.y,LEFT_BLOCK.w,LEFT_BLOCK.h,6);
     circleVsRect(c, RIGHT_BLOCK.x,RIGHT_BLOCK.y,RIGHT_BLOCK.w,RIGHT_BLOCK.h,6);
   }
 
@@ -277,10 +289,7 @@ function collideEnv(){
       if(c.x + c.rPhys > X_RIGHT){ c.x=X_RIGHT-c.rPhys; c.vx*=-0.08; }
     }
   }
-  for(let i=coins.length-1;i>=0;i--) if(coins[i]._burn){
-    if(coins[i].isRed) redPresent=false;
-    coins.splice(i,1);
-  }
+  for(let i=coins.length-1;i>=0;i--) if(coins[i]._burn) coins.splice(i,1);
 }
 
 function separateCoins(){
@@ -331,10 +340,10 @@ function drawSideWallsAndPits(){
   ctx.fillRect(0,TOP, X_LEFT, H-TOP);
   ctx.fillRect(X_RIGHT,TOP, W-X_RIGHT, H-TOP);
 
-  // визуальные чёрные полосы-ямы
+  // визуальные чёрные карманы
   ctx.fillStyle="#000";
   ctx.fillRect(0, PIT_LEFT.y, PIT_VIS_W, PIT_LEFT.h);
-  ctx.fillRect(W-PIT_VIS_W, PIT_RIGHT.y, PIT_VIS_W, PIT_RIGHT.h);
+  ctx.fillRect(W-PIT_VIS_W, PIT_RIGHT.y, PIT_VIS_W, PIT_RIGHT.h); // <-- ширина исправлена
 }
 
 function drawCorners(){
@@ -356,18 +365,16 @@ function drawDozer(){ ctx.fillStyle="#6aff1f"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H
 function drawCoins(){
   for(const c of coins){
     if(c.isRed){
-      // RED coin
-      ctx.fillStyle="#520000";
-      ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#ff2a2a";
-      ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#ff2a2a"; ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#aa1010"; ctx.stroke();
+    }else if(c.isGreen){
+      ctx.fillStyle="#0b3d0b"; ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#32ff72"; ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.lineWidth=3; ctx.strokeStyle="#14a84a"; ctx.stroke();
     }else{
-      // обычная жёлтая
-      ctx.fillStyle="#d87b00";
-      ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#fff230";
-      ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,COIN_R_DRAW,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#b86a00"; ctx.stroke();
     }
   }

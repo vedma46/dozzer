@@ -3,25 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dozer — edge pits & center-touch collect</title>
+<title>Dozer — pits on edges + 45° corners</title>
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: #000;
-    overflow: hidden;
-    width: 100%;
-    height: 100%;
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  }
-  #gameCanvas {
-    position: absolute;
-    top: 0; left: 0;
-    width: 1080px; height: 1920px;
-    transform-origin: top left;
-    display: block;
-    background: #000;
-  }
+  html,body{margin:0;padding:0;background:#000;overflow:hidden;width:100%;height:100%;}
+  #gameCanvas{position:absolute;top:0;left:0;width:1080px;height:1920px;transform-origin:top left;display:block;background:#000;}
 </style>
 </head>
 <body>
@@ -29,130 +14,96 @@
 
 <script>
 (() => {
-  // ---------- Layout ----------
-  const W=1080,H=1920;
-  const TOP_BAR=140;
+  // --- Layout ---
+  const W=1080, H=1920, TOP=140;
 
   const R=64, D=R*2;
-  const CHANNEL_W = D*7;
-  const CHANNEL_X = W/2 - CHANNEL_W/2;
-  const CHANNEL_TOP = TOP_BAR;
+  const CHANNEL_W=D*7;
+  const X_LEFT = W/2-CHANNEL_W/2;
+  const X_RIGHT= X_LEFT+CHANNEL_W;
+  const Y_TOP  = TOP;
 
-  const DOCK_H=260;
-  const DOCK_TOP = H-DOCK_H;
-  const CHANNEL_BOTTOM = DOCK_TOP;
+  const DOCK_H=260, Y_CHANNEL_BOTTOM=H-DOCK_H, Y_BOTTOM=Y_CHANNEL_BOTTOM+DOCK_H;
 
-  // dozer
-  const DOZER_W = CHANNEL_W*0.6;
-  const DOZER_H = 360;
-  const DOZER_X = W/2 - DOZER_W/2;
-  const DOZER_TOP_MAX = DOCK_TOP;
-  const DOZER_TOP_MIN = H + 80;
-  const DOZER_PUSH_V = 280;
-  const DOZER_BACK_V = 380;
+  // Dozer
+  const DZ_W=CHANNEL_W*0.6, DZ_H=360, DZ_X=W/2-DZ_W/2;
+  const DZ_PUSH_V=280, DZ_BACK_V=380;
+  const DZ_TOP_MAX=Y_CHANNEL_BOTTOM, DZ_TOP_MIN=H+80;
 
-  // pocket (spawn zone)
-  const POCKET_X = DOZER_X;
-  const POCKET_W = DOZER_W;
-  const POCKET_Y = CHANNEL_BOTTOM;
-  const POCKET_BOTTOM = POCKET_Y + DOCK_H;
+  // bottom red blocks
+  const leftBlock  ={x:X_LEFT, y:Y_CHANNEL_BOTTOM, w:DZ_X-X_LEFT,        h:DOCK_H};
+  const rightBlock ={x:DZ_X+DZ_W, y:Y_CHANNEL_BOTTOM, w:X_RIGHT-(DZ_X+DZ_W), h:DOCK_H};
 
-  // arena limits
-  const Y_TOP = CHANNEL_TOP;
-  const Y_BOTTOM = POCKET_BOTTOM;
-  const X_LEFT  = CHANNEL_X;
-  const X_RIGHT = CHANNEL_X + CHANNEL_W;
+  // spawn (black pocket)
+  const POCKET={x:DZ_X, y:Y_CHANNEL_BOTTOM, w:DZ_W, h:DOCK_H};
 
-  // bottom hard red blocks
-  const leftBlock  = {x: CHANNEL_X,         y: CHANNEL_BOTTOM, w: POCKET_X-CHANNEL_X,                h: DOCK_H};
-  const rightBlock = {x: POCKET_X+POCKET_W, y: CHANNEL_BOTTOM, w: X_RIGHT-(POCKET_X+POCKET_W),       h: DOCK_H};
+  // Pits (black) glued to screen edges; visually inside red walls
+  const PIT_TOP    = Y_TOP + D*1.4;
+  const PIT_BOTTOM = Y_CHANNEL_BOTTOM - D*1.6;
+  const PIT_H      = Math.max(60, PIT_BOTTOM-PIT_TOP);
+  const PIT_VIS_W  = Math.min(60, X_LEFT-8); // black strip width from very edge
+  const leftPit  ={y:PIT_TOP,  h:PIT_H};
+  const rightPit ={y:PIT_TOP,  h:PIT_H};
 
-  // ---------- Side pits at edges ----------
-  // Визуальные чёрные шахты прямо от краёв экрана, НЕ заходят в канал.
-  // Сгорание — когда ЦЕНТР монеты пересекает линию канала (X_LEFT/X_RIGHT) и её y попал в окно.
-  const PIT_TOP    = CHANNEL_TOP + D*1.4;
-  const PIT_BOTTOM = CHANNEL_BOTTOM - D*1.8;
-  const PIT_H      = Math.max(60, PIT_BOTTOM - PIT_TOP);
-  const PIT_VIS_W  = Math.min(60, CHANNEL_X - 8); // ширина чёрной полосы от края
-  const leftPit  = {y: PIT_TOP,  h: PIT_H};
-  const rightPit = {y: PIT_TOP,  h: PIT_H};
+  // 45° corner triangles (magenta) inside channel
+  const TRI = 220; // размер катетов
+  const L_A={x:X_LEFT,      y:Y_CHANNEL_BOTTOM};
+  const L_B={x:X_LEFT+TRI,  y:Y_CHANNEL_BOTTOM-TRI};
+  const R_A={x:X_RIGHT,     y:Y_CHANNEL_BOTTOM};
+  const R_B={x:X_RIGHT-TRI, y:Y_CHANNEL_BOTTOM-TRI};
 
-  // ---------- Physics ----------
+  // --- Physics (air-hockey vibe) ---
   const GRAVITY=0.6, FRICTION=0.999, CONTACT_DAMP=0.94, CONTACT_STIFF=0.28;
 
-  // ---------- Economy ----------
+  // --- Economy (counter kept, logic не менял) ---
   const START_COINS=50;
   let bank=START_COINS, regenUnlocked=false, regenTimer=15, REGEN_PERIOD=15;
 
-  // ---------- State ----------
-  const canvas=document.getElementById('gameCanvas');
-  const ctx=canvas.getContext('2d');
-  let dozerTopY=DOZER_TOP_MIN, dozerPhase='push';
+  // --- State ---
+  const cvs=document.getElementById('gameCanvas'), ctx=cvs.getContext('2d');
   const coins=[], particles=[];
+  let dzTop=H+80, dzPhase='push';
 
-  // ---------- Utils ----------
+  // --- Utils ---
   function resize(){
     const s=Math.min(window.innerWidth/W, window.innerHeight/H);
-    canvas.style.transform=`scale(${s})`;
-    canvas.style.left=`${(window.innerWidth - W*s)/2}px`;
-    canvas.style.top =`${(window.innerHeight - H*s)/2}px`;
+    cvs.style.transform=`scale(${s})`;
+    cvs.style.left=`${(window.innerWidth-W*s)/2}px`;
+    cvs.style.top =`${(window.innerHeight-H*s)/2}px`;
   }
   function rand(a,b){return a+Math.random()*(b-a);}
   function toGame(evt){
-    const r=canvas.getBoundingClientRect();
-    const sx=W/r.width, sy=H/r.height;
+    const r=cvs.getBoundingClientRect(), sx=W/r.width, sy=H/r.height;
     const cx=(evt.touches?evt.touches[0].clientX:evt.clientX)-r.left;
     const cy=(evt.touches?evt.touches[0].clientY:evt.clientY)-r.top;
     return {x:cx*sx,y:cy*sy};
   }
   function yInPit(y,p){return y>=p.y && y<=p.y+p.h;}
 
-  // ---------- Spawns ----------
-  function spawnCoinAt(x,y){ coins.push({x,y,r:R,vx:0,vy:0}); }
-  function trySpawn(evt){
-    evt.preventDefault();
-    if (bank<=0) return;
-    const {x,y}=toGame(evt);
-    if (x<POCKET_X || x>POCKET_X+POCKET_W || y<POCKET_Y || y>POCKET_BOTTOM) return;
-    bank--;
-    if (bank<=0 && !regenUnlocked){ regenUnlocked=true; regenTimer=REGEN_PERIOD; }
-    spawnCoinAt(x,y);
-  }
-  function initCoins(){
-    for(let i=0;i<START_COINS;i++){
-      coins.push({
-        x: W/2 + rand(-CHANNEL_W*0.25, CHANNEL_W*0.25),
-        y: rand(CHANNEL_TOP+R+40, CHANNEL_BOTTOM-R-40),
-        r:R, vx:rand(-50,50), vy:rand(-30,30)
-      });
-    }
-  }
-
-  // ---------- Particles ----------
-  function spawnParticles(x,y){
-    for (let i=0;i<15;i++){
-      particles.push({x,y,vx:rand(-100,100),vy:rand(-200,-50),life:1,size:rand(4,8)});
-    }
-  }
+  // --- Particles ---
+  function spawnParticles(x,y){ for(let i=0;i<15;i++) particles.push({x,y,vx:rand(-100,100),vy:rand(-200,-50),life:1,size:rand(4,8)}); }
   function updParticles(dt){
-    for(const p of particles){
-      p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=200*dt; p.life-=1.5*dt;
-    }
+    for(const p of particles){ p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=200*dt; p.life-=1.5*dt; }
     for(let i=particles.length-1;i>=0;i--) if(particles[i].life<=0) particles.splice(i,1);
   }
 
-  // ---------- Dozer ----------
-  function updDozer(dt){
-    if(dozerPhase==='push'){
-      dozerTopY-=DOZER_PUSH_V*dt;
-      if(dozerTopY<DOZER_TOP_MAX){dozerTopY=DOZER_TOP_MAX; dozerPhase='back';}
-    }else{
-      dozerTopY+=DOZER_BACK_V*dt;
-      if(dozerTopY>DOZER_TOP_MIN){dozerTopY=DOZER_TOP_MIN; dozerPhase='push';}
-    }
+  // --- Spawns ---
+  function spawnCoinAt(x,y){ coins.push({x,y,r:R,vx:0,vy:0}); }
+  function trySpawn(evt){
+    evt.preventDefault();
+    if(bank<=0)return;
+    const {x,y}=toGame(evt);
+    if(x<POCKET.x||x>POCKET.x+POCKET.w||y<POCKET.y||y>POCKET.y+POCKET.h) return;
+    bank--; if(bank<=0 && !regenUnlocked){ regenUnlocked=true; regenTimer=REGEN_PERIOD; }
+    spawnCoinAt(x,y);
   }
+  (function init(){
+    for(let i=0;i<START_COINS;i++){
+      coins.push({x:W/2+rand(-CHANNEL_W*0.25,CHANNEL_W*0.25), y:rand(Y_TOP+R+40, Y_CHANNEL_BOTTOM-R-40), r:R, vx:rand(-50,50), vy:rand(-30,30)});
+    }
+  })();
 
-  // ---------- Collisions ----------
+  // --- Colliders ---
   function circleVsRect(c, rx,ry,rw,rh, push=10){
     let cx=Math.max(rx, Math.min(c.x, rx+rw));
     let cy=Math.max(ry, Math.min(c.y, ry+rh));
@@ -164,26 +115,70 @@
       c.vx*=CONTACT_DAMP; c.vy*=CONTACT_DAMP;
     }
   }
-  function collideEnvironment(){
-    // dozer
-    for(const c of coins) circleVsRect(c, DOZER_X, dozerTopY, DOZER_W, DOZER_H, 10);
-
-    // bottom red blocks
-    for(const c of coins) circleVsRect(c, leftBlock.x,  leftBlock.y,  leftBlock.w,  leftBlock.h, 6);
-    for(const c of coins) circleVsRect(c, rightBlock.x, rightBlock.y, rightBlock.w, rightBlock.h,6);
-
-    // side walls + edge pits: burn only if CENTER crosses the channel line and y in pit window
-    for(const c of coins){
-      // LEFT channel edge
-      if (yInPit(c.y,leftPit) && c.x <= X_LEFT) { c._burn=true; continue; }
-      if (c.x - c.r < X_LEFT) { c.x = X_LEFT + c.r; c.vx *= -0.15; }
-
-      // RIGHT channel edge
-      if (yInPit(c.y,rightPit) && c.x >= X_RIGHT) { c._burn=true; continue; }
-      if (c.x + c.r > X_RIGHT) { c.x = X_RIGHT - c.r; c.vx *= -0.15; }
+  // circle vs line segment (for 45° slopes)
+  function circleVsSegment(c, A, B, push=8){
+    const vx=B.x-A.x, vy=B.y-A.y;
+    const len2=vx*vx+vy*vy || 1;
+    let t=((c.x-A.x)*vx + (c.y-A.y)*vy)/len2;
+    t=Math.max(0, Math.min(1,t));
+    const px=A.x + vx*t, py=A.y + vy*t;
+    const dx=c.x-px, dy=c.y-py;
+    const d2=dx*dx+dy*dy, r2=c.r*c.r;
+    if(d2<r2){
+      const d=Math.sqrt(d2)||0.0001, ov=c.r-d, nx=dx/d, ny=dy/d;
+      c.x+=nx*ov; c.y+=ny*ov;
+      c.vx+=nx*push; c.vy+=ny*push;
+      c.vx*=CONTACT_DAMP; c.vy*=CONTACT_DAMP;
     }
   }
 
+  // --- Update ---
+  function updDozer(dt){
+    if(dzPhase==='push'){ dzTop-=DZ_PUSH_V*dt; if(dzTop<DZ_TOP_MAX){dzTop=DZ_TOP_MAX; dzPhase='back';}}
+    else{ dzTop+=DZ_BACK_V*dt; if(dzTop>DZ_TOP_MIN){dzTop=DZ_TOP_MIN; dzPhase='push';}}
+  }
+  function updCoins(dt){
+    for(const c of coins){
+      c.vy+=GRAVITY*dt;
+      c.y +=c.vy*dt;
+      c.x +=c.vx*dt;
+      c.vx*=FRICTION; c.vy*=FRICTION;
+
+      // collect by CENTER at top
+      if(c.y<=Y_TOP){ spawnParticles(c.x,c.y); bank++; c._collected=true; }
+
+      // floor clamp
+      if(c.y + c.r > Y_BOTTOM){ c.y=Y_BOTTOM-c.r; c.vy*=-0.2; }
+    }
+    // remove collected/burned
+    for(let i=coins.length-1;i>=0;i--) if(coins[i]._collected||coins[i]._burn) coins.splice(i,1);
+  }
+  function collideEnv(){
+    // dozer
+    for(const c of coins) circleVsRect(c, DZ_X, dzTop, DZ_W, DZ_H, 10);
+    // slopes
+    for(const c of coins){ circleVsSegment(c, L_A, L_B, 8); circleVsSegment(c, R_A, R_B, 8); }
+    // bottom blocks
+    for(const c of coins){ circleVsRect(c, leftBlock.x,leftBlock.y,leftBlock.w,leftBlock.h,6);
+                           circleVsRect(c, rightBlock.x,rightBlock.y,rightBlock.w,rightBlock.h,6); }
+
+    // side walls with "openings" over pits:
+    for(const c of coins){
+      // LEFT
+      if (yInPit(c.y,leftPit)) {
+        // в окне кармана стенка отключена; если центр вышел за предел канала — сгорает
+        if (c.x <= X_LEFT) c._burn=true;
+      } else {
+        if (c.x - c.r < X_LEFT){ c.x=X_LEFT+c.r; c.vx*=-0.15; }
+      }
+      // RIGHT
+      if (yInPit(c.y,rightPit)) {
+        if (c.x >= X_RIGHT) c._burn=true;
+      } else {
+        if (c.x + c.r > X_RIGHT){ c.x=X_RIGHT-c.r; c.vx*=-0.15; }
+      }
+    }
+  }
   function separateCoins(){
     for(let it=0;it<2;it++){
       for(let i=0;i<coins.length;i++){
@@ -203,113 +198,78 @@
       }
     }
   }
-
-  // ---------- Coins update ----------
-  function updCoins(dt){
-    for(const c of coins){
-      c.vy+=GRAVITY*dt;
-      c.y +=c.vy*dt;
-      c.x +=c.vx*dt;
-      c.vx*=FRICTION; c.vy*=FRICTION;
-
-      // collect by CENTER at top
-      if (c.y <= Y_TOP) { spawnParticles(c.x,c.y); bank++; c._collected=true; }
-
-      // floor clamp
-      if (c.y + c.r > Y_BOTTOM){ c.y = Y_BOTTOM - c.r; c.vy *= -0.2; }
-    }
-    for(let i=coins.length-1;i>=0;i--) if(coins[i]._collected||coins[i]._burn) coins.splice(i,1);
-  }
-
-  // ---------- Bank ----------
   function updBank(dt){
     if(!regenUnlocked) return;
-    regenTimer -= dt;
-    if (regenTimer<=0){ regenTimer+=REGEN_PERIOD; bank++; }
+    regenTimer-=dt;
+    if(regenTimer<=0){ regenTimer+=REGEN_PERIOD; bank++; }
   }
 
-  // ---------- Drawing ----------
-  function drawTopBar(){
-    const g=ctx.createLinearGradient(0,0,0,TOP_BAR);
-    g.addColorStop(0,"#2fd144"); g.addColorStop(1,"#1a6f2f");
-    ctx.fillStyle=g; ctx.fillRect(0,0,W,TOP_BAR);
+  // --- Draw ---
+  function topBar(){
+    const g=ctx.createLinearGradient(0,0,0,TOP); g.addColorStop(0,"#2fd144"); g.addColorStop(1,"#1a6f2f");
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,TOP);
     ctx.fillStyle="#fff"; ctx.font="bold 64px system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle";
-    if(!regenUnlocked) ctx.fillText(`COINS: ${bank}`, W/2, TOP_BAR/2);
-    else if(bank>0)    ctx.fillText(`COINS: ${bank}`, W/2, TOP_BAR/2);
-    else               ctx.fillText(`COINS: ${bank} (${Math.ceil(regenTimer)})`, W/2, TOP_BAR/2);
+    if(!regenUnlocked || bank>0) ctx.fillText(`COINS: ${bank}`, W/2, TOP/2);
+    else ctx.fillText(`COINS: ${bank} (${Math.ceil(regenTimer)})`, W/2, TOP/2);
   }
-  function drawChannel(){
-    ctx.fillStyle="#0b4f8a";
-    ctx.fillRect(CHANNEL_X, CHANNEL_TOP, CHANNEL_W, CHANNEL_BOTTOM-CHANNEL_TOP);
-  }
-  function drawSideWallsAndEdgePits(){
-    // red side walls
+  function channel(){ ctx.fillStyle="#0b4f8a"; ctx.fillRect(X_LEFT, Y_TOP, CHANNEL_W, Y_CHANNEL_BOTTOM-Y_TOP); }
+  function sideWallsAndPits(){
+    // red walls
     ctx.fillStyle="#ff4f4f";
-    ctx.fillRect(0, TOP_BAR, CHANNEL_X, H-TOP_BAR);
-    ctx.fillRect(CHANNEL_X+CHANNEL_W, TOP_BAR, W-(CHANNEL_X+CHANNEL_W), H-TOP_BAR);
-    // black pits at edges (purely visual; burn happens on channel line)
+    ctx.fillRect(0, TOP, X_LEFT, H-TOP);
+    ctx.fillRect(X_RIGHT, TOP, W-X_RIGHT, H-TOP);
+    // black edge pits (visual)
     ctx.fillStyle="#000";
-    ctx.fillRect(0, leftPit.y, PIT_VIS_W, leftPit.h);                                 // left edge
-    ctx.fillRect(W-PIT_VIS_W, rightPit.y, PIT_VIS_W, rightPit.h);                     // right edge
+    ctx.fillRect(0, leftPit.y, PIT_VIS_W, leftPit.h);
+    ctx.fillRect(W-PIT_VIS_W, rightPit.y, PIT_VIS_W, rightPit.h);
   }
-  function drawDock(){
+  function dock(){
     ctx.fillStyle="#ff4f4f";
-    ctx.fillRect(leftBlock.x, leftBlock.y, leftBlock.w, leftBlock.h);
+    ctx.fillRect(leftBlock.x,leftBlock.y,leftBlock.w,leftBlock.h);
     ctx.fillRect(rightBlock.x,rightBlock.y,rightBlock.w,rightBlock.h);
     ctx.fillStyle="#000";
-    ctx.fillRect(POCKET_X, CHANNEL_BOTTOM, POCKET_W, DOCK_H);
+    ctx.fillRect(POCKET.x, POCKET.y, POCKET.w, POCKET.h);
   }
-  function drawDozer(){
-    ctx.fillStyle="#6aff1f";
-    ctx.fillRect(DOZER_X, dozerTopY, DOZER_W, DOZER_H);
+  function dozer(){ ctx.fillStyle="#6aff1f"; ctx.fillRect(DZ_X, dzTop, DZ_W, DZ_H); }
+  function corners(){
+    ctx.fillStyle="#b01779"; // бордовый
+    // лево
+    ctx.beginPath();
+    ctx.moveTo(L_A.x, L_A.y);
+    ctx.lineTo(L_B.x, L_B.y);
+    ctx.lineTo(X_LEFT, Y_CHANNEL_BOTTOM-TRI);
+    ctx.closePath(); ctx.fill();
+    // право
+    ctx.beginPath();
+    ctx.moveTo(R_A.x, R_A.y);
+    ctx.lineTo(R_B.x, R_B.y);
+    ctx.lineTo(X_RIGHT, Y_CHANNEL_BOTTOM-TRI);
+    ctx.closePath(); ctx.fill();
   }
-  function drawCoins(){
+  function coinsDraw(){
     for(const c of coins){
-      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x, c.y+10, c.r, 0, Math.PI*2); ctx.fill();
-      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,c.r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,c.r,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#b86a00"; ctx.stroke();
     }
   }
-  function drawParticles(){
-    for(const p of particles){
-      ctx.globalAlpha=p.life;
-      ctx.fillStyle="#fff230";
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill();
-      ctx.globalAlpha=1;
-    }
+  function particlesDraw(){
+    for(const p of particles){ ctx.globalAlpha=p.life; ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill(); }
+    ctx.globalAlpha=1;
   }
   function drawAll(){
     ctx.clearRect(0,0,W,H);
-    drawTopBar();
-    drawChannel();
-    drawSideWallsAndEdgePits();
-    drawDock();
-    drawDozer();
-    drawCoins();
-    drawParticles();
+    topBar(); channel(); sideWallsAndPits(); corners(); dock(); dozer(); coinsDraw(); particlesDraw();
   }
 
-  // ---------- Loop ----------
-  function updateAll(dt){
-    updDozer(dt);
-    updCoins(dt);
-    collideEnvironment();
-    separateCoins();
-    updBank(dt);
-    updParticles(dt);
-  }
+  // --- Loop ---
+  function update(dt){ updDozer(dt); updCoins(dt); collideEnv(); separateCoins(); updBank(dt); updParticles(dt); }
   let last=performance.now();
-  function loop(ts){
-    const dt=(ts-last)/1000; last=ts;
-    updateAll(dt);
-    drawAll();
-    requestAnimationFrame(loop);
-  }
+  function loop(t){ const dt=(t-last)/1000; last=t; update(dt); drawAll(); requestAnimationFrame(loop); }
 
-  // ---------- Boot ----------
-  canvas.addEventListener('mousedown', trySpawn);
-  canvas.addEventListener('touchstart', trySpawn, {passive:false});
-  initCoins();
+  // --- Boot ---
+  cvs.addEventListener('mousedown', trySpawn);
+  cvs.addEventListener('touchstart', trySpawn, {passive:false});
   window.addEventListener('load', ()=>{ resize(); last=performance.now(); requestAnimationFrame(loop); });
   window.addEventListener('resize', resize);
 })();

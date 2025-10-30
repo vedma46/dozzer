@@ -66,10 +66,10 @@ const RED_SCALE   = 1.00;
 const GREEN_SCALE = 1.2;
 
 // удобные хелперы радиусов:
-const physR = (isRed, isGreen) =>
+const physR = (isRed, isGreen, isBlue) =>
   isGreen ? COIN_R_PHYS*GREEN_SCALE : (isRed ? COIN_R_PHYS*RED_SCALE : COIN_R_PHYS);
 
-const drawR = (isRed, isGreen) =>
+const drawR = (isRed, isGreen, isBlue) =>
   isGreen ? COIN_R_DRAW*GREEN_SCALE : (isRed ? COIN_R_DRAW*RED_SCALE : COIN_R_DRAW);
 
 // ---------- Physics ----------
@@ -98,6 +98,8 @@ let timeElapsed=0, nextRedAt=0, nextGreenAt=0, nextBlueAt=0;
 
 // blue booster effect
 let blueBoostActive=false, blueBoostLeft=0;
+const YELLOW_SIZE_BOOSTED = 80;
+const YELLOW_SIZE_NORMAL = 77;
 
 // ---------- Tutorial ----------
 const tutorial = { visible:true };
@@ -184,8 +186,10 @@ function drawParticles(){
 
 // ---------- Coins ----------
 function spawnCoinAt(x,y,isRed=false,isGreen=false,isBlue=false){
-  const r = physR(isRed, isGreen);
-  coins.push({x,y,rPhys:r,vx:0,vy:0,isRed,isGreen,isBlue});
+  let r = physR(isRed, isGreen);
+  const coin = {x,y,rPhys:r,vx:0,vy:0,isRed,isGreen,isBlue};
+  if(isBlue) coin.rotation = 0;
+  coins.push(coin);
 }
 
 function trySpawn(e){
@@ -216,7 +220,8 @@ function initCoins(){
       vy:rand(-15,15),
       isRed:false,
       isGreen:false,
-      isBlue:false
+      isBlue:false,
+      rotation:0
     });
   }
   initTopBarStars();
@@ -279,7 +284,7 @@ function spawnSixPocketCoins(){
   for(let i=0;i<6;i++){
     const x = rand(POCKET.x+COIN_R_PHYS, POCKET.x+POCKET.w-COIN_R_PHYS);
     const y = rand(POCKET.y+COIN_R_PHYS, POCKET.y+POCKET.h-COIN_R_PHYS);
-    coins.push({x,y,rPhys:COIN_R_PHYS,vx:rand(-10,10),vy:rand(-5,5),isRed:false,isGreen:false,isBlue:false});
+    coins.push({x,y,rPhys:COIN_R_PHYS,vx:rand(-10,10),vy:rand(-5,5),isRed:false,isGreen:false,isBlue:false,rotation:0});
   }
 }
 
@@ -317,6 +322,11 @@ function updCoins(dt){
   }
 
   for(const c of coins){
+    if(!c.isRed && !c.isGreen && !c.isBlue && blueBoostActive){
+      c.rPhys = YELLOW_SIZE_BOOSTED;
+    }else if(!c.isRed && !c.isGreen && !c.isBlue && !blueBoostActive){
+      c.rPhys = YELLOW_SIZE_NORMAL;
+    }
     c.vy += GRAVITY*dt;
     if(c.y>Y_TOP+(Y_CHANNEL_BOTTOM-Y_TOP)*0.35 && c.y<Y_CHANNEL_BOTTOM){
       c.vx += (X_CENTER - c.x) * (CENTER_PULL*dt);
@@ -324,6 +334,7 @@ function updCoins(dt){
     c.y += c.vy*dt; c.x += c.vx*dt;
     c.vx *= Math.pow(FRICTION_X, 60*dt);
     c.vy *= Math.pow(FRICTION_Y, 60*dt);
+    if(c.isBlue) c.rotation += c.vx * 0.015;
 
     if(c.y<=Y_TOP){
       c._collect=true;
@@ -477,8 +488,9 @@ function drawDozer(){ ctx.fillStyle="#75f80c"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H
 function drawCoins(){
   for(const c of coins){
     let r = drawR(c.isRed, c.isGreen);
+    let effectiveR = r;
     if(c.isBlue===false && blueBoostActive && !c.isRed && !c.isGreen){
-      r *= 1.3;
+      effectiveR = (blueBoostActive && !c.isRed && !c.isGreen) ? YELLOW_SIZE_BOOSTED : YELLOW_SIZE_NORMAL;
     }
     if(c.isRed){
       ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,r,0,Math.PI*2); ctx.fill();
@@ -490,12 +502,16 @@ function drawCoins(){
       ctx.lineWidth=3; ctx.strokeStyle="#14a84a"; ctx.stroke();
     }else if(c.isBlue){
       const sqSize = r * 1.6;
-      ctx.fillStyle="#001a4d"; ctx.fillRect(c.x-sqSize/2, c.y-sqSize/2+10, sqSize, sqSize);
-      ctx.fillStyle="#0066ff"; ctx.fillRect(c.x-sqSize/2, c.y-sqSize/2, sqSize, sqSize);
-      ctx.lineWidth=3; ctx.strokeStyle="#004499"; ctx.strokeRect(c.x-sqSize/2, c.y-sqSize/2, sqSize, sqSize);
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.rotation);
+      ctx.fillStyle="#001a4d"; ctx.fillRect(-sqSize/2, -sqSize/2+10, sqSize, sqSize);
+      ctx.fillStyle="#0066ff"; ctx.fillRect(-sqSize/2, -sqSize/2, sqSize, sqSize);
+      ctx.lineWidth=3; ctx.strokeStyle="#004499"; ctx.strokeRect(-sqSize/2, -sqSize/2, sqSize, sqSize);
+      ctx.restore();
     }else{
-      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,r,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,effectiveR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,effectiveR,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#b86a00"; ctx.stroke();
     }
   }

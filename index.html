@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Dozer — guided coins + RED/GREEN + Tutorial spotlight + TopBar FX (fix)</title>
+<title>Dozer — guided coins + RED/GREEN + Tutorial spotlight + TopBar FX (scalable radii)</title>
 <style>
   html,body{margin:0;padding:0;background:#000;overflow:hidden;width:100%;height:100%}
   #gameCanvas{position:absolute;top:0;left:0;width:1080px;height:1920px;transform-origin:top left;display:block;background:#000}
@@ -57,9 +57,20 @@ const RT_INNER ={x:DZ_X+DZ_W, y:Y_CHANNEL_BOTTOM};
 const RT_CORNER={x:X_RIGHT,   y:Y_CHANNEL_BOTTOM};
 const RT_WALL  ={x:X_RIGHT,   y:Y_CHANNEL_BOTTOM-TRI};
 
-// ---------- Coin size ----------
-const COIN_R_PHYS = 77;
-const COIN_R_DRAW = 77;
+// ---------- Coin size (ЕДИНОЕ МЕСТО ДЛЯ НАСТРОЙКИ) ----------
+const COIN_R_PHYS = 77;   // базовый физический радиус (желтая монета)
+const COIN_R_DRAW = 77;   // базовый визуальный радиус
+
+// масштаб радиусов для спец-монет (можно ставить 1.25, 1.5, 2 и т.п.)
+const RED_SCALE   = 1.00;
+const GREEN_SCALE = 1.2;
+
+// удобные хелперы радиусов:
+const physR = (isRed, isGreen) =>
+  isGreen ? COIN_R_PHYS*GREEN_SCALE : (isRed ? COIN_R_PHYS*RED_SCALE : COIN_R_PHYS);
+
+const drawR = (isRed, isGreen) =>
+  isGreen ? COIN_R_DRAW*GREEN_SCALE : (isRed ? COIN_R_DRAW*RED_SCALE : COIN_R_DRAW);
 
 // ---------- Physics ----------
 const GRAVITY=0.48;
@@ -169,10 +180,10 @@ function drawParticles(){
 
 // ---------- Coins ----------
 function spawnCoinAt(x,y,isRed=false,isGreen=false){
-  const coin={x,y,rPhys:COIN_R_PHYS,vx:0,vy:0,isRed,isGreen};
-  if(isGreen){ coin.rPhys=COIN_R_PHYS*2; }
-  coins.push(coin);
+  const r = physR(isRed, isGreen);
+  coins.push({x,y,rPhys:r,vx:0,vy:0,isRed,isGreen});
 }
+
 function trySpawn(e){
   e.preventDefault();
   const {x,y}=toGame(e);
@@ -180,6 +191,7 @@ function trySpawn(e){
   if(bank<=0){ startRegen(); return; }
   bank--; spawnCoinAt(x,y,false,false); if(bank===0) startRegen();
 }
+
 function handleInput(e){
   if(tutorial.visible){
     const before=bank;
@@ -189,6 +201,7 @@ function handleInput(e){
   }
   trySpawn(e);
 }
+
 function initCoins(){
   for(let i=0;i<40;i++){
     coins.push({
@@ -267,15 +280,19 @@ function spawnSixPocketCoins(){
 
 function updCoins(dt){
   timeElapsed += dt;
+  // RED
   while(timeElapsed >= nextRedAt){
-    const rx = rand(X_LEFT+COIN_R_PHYS, X_RIGHT-COIN_R_PHYS);
-    const ry = rand(Y_TOP+COIN_R_PHYS, Y_CHANNEL_BOTTOM-COIN_R_PHYS);
+    const r = physR(true,false);
+    const rx = rand(X_LEFT+r, X_RIGHT-r);
+    const ry = rand(Y_TOP+r,  Y_CHANNEL_BOTTOM-r);
     spawnCoinAt(rx, ry, true, false);
     nextRedAt += RED_SPAWN_INTERVAL;
   }
+  // GREEN
   while(timeElapsed >= nextGreenAt){
-    const gx = rand(X_LEFT+COIN_R_PHYS*2, X_RIGHT-COIN_R_PHYS*2);
-    const gy = rand(Y_TOP+COIN_R_PHYS*2, Y_CHANNEL_BOTTOM-COIN_R_PHYS*2);
+    const r = physR(false,true);
+    const gx = rand(X_LEFT+r, X_RIGHT-r);
+    const gy = rand(Y_TOP+r,  Y_CHANNEL_BOTTOM-r);
     spawnCoinAt(gx, gy, false, true);
     nextGreenAt += GREEN_SPAWN_INTERVAL;
   }
@@ -362,13 +379,11 @@ function updateRegen(dt){
 
 // ---------- Draw ----------
 function drawTopBar(){
-  // базовый тёмно-красный градиент (как просил)
   let g=ctx.createLinearGradient(0,0,0,TOP);
   g.addColorStop(0,"#1b0f12");
   g.addColorStop(1,"#6a1414");
   ctx.fillStyle=g; ctx.fillRect(0,0,W,TOP);
 
-  // перелив
   if(barAnimT>0){
     const t = 1 - (barAnimT / BAR_ANIM_DUR);
     const shift = (Math.sin(t*Math.PI*2)+1)/2;
@@ -388,7 +403,6 @@ function drawTopBar(){
     ctx.globalAlpha=0.35; ctx.fillStyle=stripe; ctx.fillRect(0,0,W,TOP); ctx.globalAlpha=1;
   }
 
-  // твинклы и вспышки
   ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,TOP); ctx.clip();
   for(const s of twinkles){
     const a = 0.35 + 0.65*(0.5+0.5*Math.sin(s.phase));
@@ -406,7 +420,6 @@ function drawTopBar(){
   ctx.globalCompositeOperation="source-over";
   ctx.restore();
 
-  // текст
   ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.textBaseline="middle";
   ctx.font="bold 33px system-ui";
   if(regenActive) ctx.fillText(`COINS: ${bank}  (${regenLeft}s)`, 40, TOP/2);
@@ -421,7 +434,6 @@ function drawSideWallsAndPits(){
   ctx.fillRect(X_RIGHT,TOP, W-X_RIGHT, H-TOP);
   ctx.fillStyle="#000";
   ctx.fillRect(0, PIT_LEFT.y, PIT_VIS_W, PIT_LEFT.h);
-  // <<< ФИКС: корректные width/height для правого кармана
   ctx.fillRect(W-PIT_VIS_W, PIT_RIGHT.y, PIT_VIS_W, PIT_RIGHT.h);
 }
 
@@ -443,18 +455,18 @@ function drawDozer(){ ctx.fillStyle="#75f80c"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H
 
 function drawCoins(){
   for(const c of coins){
-    const drawR = c.isGreen ? COIN_R_DRAW*2 : COIN_R_DRAW;
+    const r = drawR(c.isRed, c.isGreen);
     if(c.isRed){
-      ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,drawR,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#ff2a2a"; ctx.beginPath(); ctx.arc(c.x,c.y,drawR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#ff2a2a"; ctx.beginPath(); ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#aa1010"; ctx.stroke();
     }else if(c.isGreen){
-      ctx.fillStyle="#0b3d0b"; ctx.beginPath(); ctx.arc(c.x,c.y+10,drawR,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#32ff72"; ctx.beginPath(); ctx.arc(c.x,c.y,drawR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#0b3d0b"; ctx.beginPath(); ctx.arc(c.x,c.y+10,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#32ff72"; ctx.beginPath(); ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#14a84a"; ctx.stroke();
     }else{
-      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,drawR,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,drawR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,r,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="#fff230"; ctx.beginPath(); ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=3; ctx.strokeStyle="#b86a00"; ctx.stroke();
     }
   }

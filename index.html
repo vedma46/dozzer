@@ -66,11 +66,21 @@ const RED_SCALE   = 1.00;
 const GREEN_SCALE = 1.2;
 
 // удобные хелперы радиусов:
-const physR = (isRed, isGreen, isBlue) =>
-  isGreen ? COIN_R_PHYS*GREEN_SCALE : (isRed ? COIN_R_PHYS*RED_SCALE : COIN_R_PHYS);
+const PURPLE_SCALE = 1.1;
 
-const drawR = (isRed, isGreen, isBlue) =>
-  isGreen ? COIN_R_DRAW*GREEN_SCALE : (isRed ? COIN_R_DRAW*RED_SCALE : COIN_R_DRAW);
+const physR = (isRed, isGreen, isBlue, isPurple) => {
+  if(isGreen) return COIN_R_PHYS * GREEN_SCALE;
+  if(isRed) return COIN_R_PHYS * RED_SCALE;
+  if(isPurple) return COIN_R_PHYS * PURPLE_SCALE;
+  return COIN_R_PHYS;
+};
+
+const drawR = (isRed, isGreen, isBlue, isPurple) => {
+  if(isGreen) return COIN_R_DRAW * GREEN_SCALE;
+  if(isRed) return COIN_R_DRAW * RED_SCALE;
+  if(isPurple) return COIN_R_DRAW * PURPLE_SCALE;
+  return COIN_R_DRAW;
+};
 
 // ---------- Physics ----------
 const GRAVITY=0.48;
@@ -98,12 +108,26 @@ let bank=101, regenActive=false, regenLeft=0, regenTick=0;
 const RED_SPAWN_INTERVAL   = 33;
 const GREEN_SPAWN_INTERVAL = 20;
 const BLUE_SPAWN_INTERVAL  = 120;
-let timeElapsed=0, nextRedAt=0, nextGreenAt=0, nextBlueAt=0;
+const PURPLE_SPAWN_INTERVAL = 33;
+let timeElapsed=0, nextRedAt=0, nextGreenAt=0, nextBlueAt=0, nextPurpleAt=PURPLE_SPAWN_INTERVAL;
 
 // blue booster effect
 let blueBoostActive=false, blueBoostLeft=0;
 const YELLOW_SIZE_BOOSTED = 80;
 const YELLOW_SIZE_NORMAL = 77;
+
+// purple wave effect
+let purpleWaveActive=false;
+let purpleWaveFront=0;
+let purpleWaveId=0;
+const PURPLE_WAVE_SPEED = 1600;
+const PURPLE_WAVE_FORCE = 920;
+const PURPLE_WAVE_WIDTH = 360;
+const PURPLE_WAVE_DRAG = 0.82;
+
+let shakeTimer=0;
+let shakeDuration=0;
+let shakeMagnitude=0;
 
 // ---------- Tutorial ----------
 const tutorial = { visible:true };
@@ -172,6 +196,33 @@ function toGame(e){
 }
 function startRegen(){ if(!regenActive && bank===0){ regenActive=true; regenLeft=15; regenTick=0; } }
 
+function triggerShake(duration, magnitude){
+  shakeTimer = duration;
+  shakeDuration = Math.max(0.001, duration);
+  shakeMagnitude = magnitude;
+}
+
+function updateScreenShake(dt){
+  if(shakeTimer>0){
+    shakeTimer = Math.max(0, shakeTimer - dt);
+    if(shakeTimer===0){
+      shakeDuration = 0;
+      shakeMagnitude = 0;
+    }
+  }
+}
+
+function sampleShakeOffset(){
+  if(shakeTimer<=0 || shakeDuration<=0) return {x:0,y:0};
+  const progress = shakeTimer / shakeDuration;
+  const falloff = progress * progress;
+  const maxOffset = shakeMagnitude * falloff;
+  return {
+    x:(Math.random()*2-1)*maxOffset,
+    y:(Math.random()*2-1)*maxOffset
+  };
+}
+
 // ---------- Particles ----------
 function spawnParticles(x,y){
   for(let i=0;i<12;i++)
@@ -189,24 +240,29 @@ function drawParticles(){
 }
 
 // ---------- Coins ----------
-function spawnCoinAt(x,y,isRed=false,isGreen=false,isBlue=false){
-  let r = physR(isRed, isGreen);
-  const coin = {x,y,rPhys:r,vx:0,vy:0,isRed,isGreen,isBlue};
+function spawnCoinAt(x,y,isRed=false,isGreen=false,isBlue=false,isPurple=false){
+  let r = physR(isRed, isGreen, isBlue, isPurple);
+  const coin = {x,y,rPhys:r,vx:0,vy:0,isRed,isGreen,isBlue,isPurple,rotation:0,lastWaveId:0};
   if(isBlue){
     coin.rotation = 0;
     coin.rotationVel = 0;
-    coin.prevHeading = null;
+    coin.prevVx = 0;
+    coin.prevVy = 0;
+  }
+  if(isPurple){
+    coin.rotation = 0;
+    coin.spin = (Math.random()*0.8 + 0.4) * (Math.random()<0.5?-1:1);
   }
   coins.push(coin);
 }
 
+function isCoinInPocket(c){
+  return c.x>POCKET.x && c.x<POCKET.x+POCKET.w && c.y>POCKET.y && c.y<POCKET.y+POCKET.h;
+}
+
 function countCoinsInPocket(){
   let count=0;
-  for(const c of coins){
-    if(c.x>POCKET.x && c.x<POCKET.x+POCKET.w && c.y>POCKET.y && c.y<POCKET.y+POCKET.h){
-      count++;
-    }
-  }
+  for(const c of coins) if(isCoinInPocket(c)) count++;
   return count;
 }
 
@@ -241,7 +297,9 @@ function initCoins(){
       isRed:false,
       isGreen:false,
       isBlue:false,
-      rotation:0
+      isPurple:false,
+      rotation:0,
+      lastWaveId:0
     });
   }
   initTopBarStars();
@@ -304,10 +362,24 @@ function updDozer(dt){
 }
 
 function spawnSixPocketCoins(){
-  for(let i=0;i<6;i++){
+  const capacity = Math.max(0, POCKET_COIN_CAP - countCoinsInPocket());
+  const spawnCount = Math.min(6, capacity);
+  for(let i=0;i<spawnCount;i++){
     const x = rand(POCKET.x+COIN_R_PHYS, POCKET.x+POCKET.w-COIN_R_PHYS);
     const y = rand(POCKET.y+COIN_R_PHYS, POCKET.y+POCKET.h-COIN_R_PHYS);
-    coins.push({x,y,rPhys:COIN_R_PHYS,vx:rand(-10,10),vy:rand(-5,5),isRed:false,isGreen:false,isBlue:false,rotation:0});
+    coins.push({
+      x,
+      y,
+      rPhys:COIN_R_PHYS,
+      vx:rand(-10,10),
+      vy:rand(-5,5),
+      isRed:false,
+      isGreen:false,
+      isBlue:false,
+      isPurple:false,
+      rotation:0,
+      lastWaveId:0
+    });
   }
 }
 
@@ -315,28 +387,38 @@ function updCoins(dt){
   timeElapsed += dt;
   // RED
   while(timeElapsed >= nextRedAt){
-    const r = physR(true,false);
+    const r = physR(true,false,false,false);
     const rx = rand(X_LEFT+r, X_RIGHT-r);
     const ry = rand(Y_TOP+r,  Y_CHANNEL_BOTTOM-r);
-    spawnCoinAt(rx, ry, true, false, false);
+    spawnCoinAt(rx, ry, true, false, false, false);
     nextRedAt += RED_SPAWN_INTERVAL;
   }
   // GREEN
   while(timeElapsed >= nextGreenAt){
-    const r = physR(false,true);
+    const r = physR(false,true,false,false);
     const gx = rand(X_LEFT+r, X_RIGHT-r);
     const gy = rand(Y_TOP+r,  Y_CHANNEL_BOTTOM-r);
-    spawnCoinAt(gx, gy, false, true, false);
+    spawnCoinAt(gx, gy, false, true, false, false);
     nextGreenAt += GREEN_SPAWN_INTERVAL;
   }
   // BLUE
   while(timeElapsed >= nextBlueAt){
-    const r = physR(false,false);
+    const r = physR(false,false,true,false);
     const bx = rand(X_LEFT+r, X_RIGHT-r);
     const by = rand(Y_TOP+r,  Y_CHANNEL_BOTTOM-r);
-    spawnCoinAt(bx, by, false, false, true);
+    spawnCoinAt(bx, by, false, false, true, false);
     nextBlueAt += BLUE_SPAWN_INTERVAL;
   }
+  // PURPLE
+  while(timeElapsed >= nextPurpleAt){
+    const r = physR(false,false,false,true);
+    const px = rand(X_LEFT+r, X_RIGHT-r);
+    const py = rand(Y_TOP+r,  Y_CHANNEL_BOTTOM-r);
+    spawnCoinAt(px, py, false, false, false, true);
+    nextPurpleAt += PURPLE_SPAWN_INTERVAL;
+  }
+
+  updatePurpleWave(dt);
 
   // Update blue boost effect
   if(blueBoostActive){
@@ -345,9 +427,13 @@ function updCoins(dt){
   }
 
   for(const c of coins){
-    if(!c.isRed && !c.isGreen && !c.isBlue && blueBoostActive){
+    if(c.isPurple){
+      const spin = c.spin || 0;
+      c.rotation = (c.rotation || 0) + spin * dt;
+    }
+    if(!c.isRed && !c.isGreen && !c.isBlue && !c.isPurple && blueBoostActive){
       c.rPhys = YELLOW_SIZE_BOOSTED;
-    }else if(!c.isRed && !c.isGreen && !c.isBlue && !blueBoostActive){
+    }else if(!c.isRed && !c.isGreen && !c.isBlue && !c.isPurple && !blueBoostActive){
       c.rPhys = YELLOW_SIZE_NORMAL;
     }
     c.vy += GRAVITY*dt;
@@ -375,6 +461,8 @@ function updCoins(dt){
       spawnSixPocketCoins();
     }else if(c.isBlue){
       blueBoostActive=true; blueBoostLeft=5;
+    }else if(c.isPurple){
+      triggerPurpleWave();
     }else{
       bank++; if(bank>0) regenActive=false;
     }
@@ -420,33 +508,70 @@ function separateCoins(){
   }
 }
 
+function triggerPurpleWave(){
+  purpleWaveActive = true;
+  purpleWaveFront = Y_BOTTOM + PURPLE_WAVE_WIDTH;
+  purpleWaveId++;
+  triggerShake(0.65, 26);
+}
+
+function updatePurpleWave(dt){
+  if(!purpleWaveActive) return;
+  const prevFront = purpleWaveFront;
+  purpleWaveFront -= PURPLE_WAVE_SPEED * dt;
+  const currentFront = purpleWaveFront;
+  const waveTail = currentFront + PURPLE_WAVE_WIDTH;
+
+  for(const c of coins){
+    if(c.lastWaveId === purpleWaveId) continue;
+    if(c.y <= waveTail && c.y >= currentFront && c.y <= prevFront && c.y <= Y_BOTTOM){
+      const normalized = (c.y - currentFront) / Math.max(PURPLE_WAVE_WIDTH, 1);
+      const intensity = 1 - Math.min(1, normalized);
+      c.vy = Math.min(c.vy, 0);
+      c.vy -= PURPLE_WAVE_FORCE * (0.6 + 0.4*intensity);
+      const lateral = (c.x - X_CENTER) * 0.04;
+      c.vx += lateral;
+      c.vx *= PURPLE_WAVE_DRAG;
+      c.lastWaveId = purpleWaveId;
+    }
+  }
+
+  if(currentFront <= Y_TOP - PURPLE_WAVE_WIDTH){
+    purpleWaveActive = false;
+  }
+}
+
 function updateBlueRotations(dt){
-  const motionDamping = Math.pow(0.88, 60*dt);
-  const restDamping = Math.pow(0.4, 60*dt);
-  const torqueScale = 0.45;
-  const maxSpin = 2.2;
+  const motionDamping = Math.pow(0.9, 60*dt);
+  const restDamping = Math.pow(0.35, 60*dt);
+  const torqueScale = 0.18;
+  const maxSpin = 1.25;
+  const minDt = 1/240;
   for(const c of coins){
     if(!c.isBlue) continue;
     if(typeof c.rotation !== 'number') c.rotation = 0;
     if(typeof c.rotationVel !== 'number') c.rotationVel = 0;
 
+    const prevVx = typeof c.prevVx === 'number' ? c.prevVx : c.vx;
+    const prevVy = typeof c.prevVy === 'number' ? c.prevVy : c.vy;
+    const dvx = c.vx - prevVx;
+    const dvy = c.vy - prevVy;
     const speed = Math.hypot(c.vx, c.vy);
-    if(speed > 5){
-      const heading = Math.atan2(c.vy, c.vx);
-      if(typeof c.prevHeading === 'number'){
-        let delta = heading - c.prevHeading;
-        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
-        const radius = c.rPhys || COIN_R_PHYS;
-        const torque = delta * (speed / radius);
-        c.rotationVel += torque * torqueScale * dt;
-      }
-      c.prevHeading = heading;
+    const accel = Math.hypot(dvx, dvy) / Math.max(dt, minDt);
+
+    if(speed > 3 || accel > 25){
+      const radius = c.rPhys || COIN_R_PHYS;
+      const torque = (prevVx * dvy - prevVy * dvx) / Math.max(radius, 1);
+      c.rotationVel += torque * torqueScale;
       c.rotationVel *= motionDamping;
     }else{
-      c.prevHeading = null;
       c.rotationVel *= restDamping;
-      if(Math.abs(c.rotationVel) < 0.02) c.rotationVel = 0;
+      if(Math.abs(c.rotationVel) < 0.015) c.rotationVel = 0;
     }
+
+    c.prevVx = c.vx;
+    c.prevVy = c.vy;
+
     if(c.rotationVel>maxSpin) c.rotationVel=maxSpin;
     else if(c.rotationVel<-maxSpin) c.rotationVel=-maxSpin;
     c.rotation += c.rotationVel * dt;
@@ -541,10 +666,13 @@ function drawDozer(){ ctx.fillStyle="#75f80c"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H
 
 function drawCoins(){
   for(const c of coins){
-    let r = drawR(c.isRed, c.isGreen);
+    let r = drawR(c.isRed, c.isGreen, c.isBlue, c.isPurple);
+    const isYellow = !c.isRed && !c.isGreen && !c.isBlue && !c.isPurple;
     let effectiveR = r;
-    if(c.isBlue===false && blueBoostActive && !c.isRed && !c.isGreen){
-      effectiveR = (blueBoostActive && !c.isRed && !c.isGreen) ? YELLOW_SIZE_BOOSTED : YELLOW_SIZE_NORMAL;
+    if(isYellow && blueBoostActive){
+      effectiveR = YELLOW_SIZE_BOOSTED;
+    }else if(isYellow && !blueBoostActive){
+      effectiveR = YELLOW_SIZE_NORMAL;
     }
     if(c.isRed){
       ctx.fillStyle="#520000"; ctx.beginPath(); ctx.arc(c.x,c.y+10,r,0,Math.PI*2); ctx.fill();
@@ -562,6 +690,40 @@ function drawCoins(){
       ctx.fillStyle="#001a4d"; ctx.fillRect(-sqSize/2, -sqSize/2+10, sqSize, sqSize);
       ctx.fillStyle="#0066ff"; ctx.fillRect(-sqSize/2, -sqSize/2, sqSize, sqSize);
       ctx.lineWidth=3; ctx.strokeStyle="#004499"; ctx.strokeRect(-sqSize/2, -sqSize/2, sqSize, sqSize);
+      ctx.restore();
+    }else if(c.isPurple){
+      const shadowR = r * 1.05;
+      ctx.fillStyle="#2a0040"; ctx.beginPath(); ctx.arc(c.x, c.y+10, shadowR, 0, Math.PI*2); ctx.fill();
+      const grad = ctx.createRadialGradient(c.x, c.y - r*0.1, r*0.2, c.x, c.y, r);
+      grad.addColorStop(0, "#ffe6ff");
+      grad.addColorStop(0.45, "#c55dff");
+      grad.addColorStop(1, "#6e00a8");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI*2); ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = "#d99cff"; ctx.stroke();
+
+      const starOuter = r * 0.65;
+      const starInner = r * 0.3;
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      ctx.rotate(c.rotation || 0);
+      ctx.beginPath();
+      let rot = -Math.PI/2;
+      const spikes = 5;
+      const step = Math.PI / spikes;
+      ctx.moveTo(Math.cos(rot)*starOuter, Math.sin(rot)*starOuter);
+      for(let i=0;i<spikes;i++){
+        rot += step;
+        ctx.lineTo(Math.cos(rot)*starInner, Math.sin(rot)*starInner);
+        rot += step;
+        ctx.lineTo(Math.cos(rot)*starOuter, Math.sin(rot)*starOuter);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#fff8ff";
+      ctx.fill();
+      ctx.strokeStyle = "#f4c2ff";
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
       ctx.restore();
     }else{
       ctx.fillStyle="#d87b00"; ctx.beginPath(); ctx.arc(c.x,c.y+10,effectiveR,0,Math.PI*2); ctx.fill();
@@ -606,9 +768,13 @@ function update(dt){
   updParticles(dt);
   updateRegen(dt);
   updateTopBarFX(dt);
+  updateScreenShake(dt);
 }
 function draw(){
   ctx.clearRect(0,0,W,H);
+  const shakeOffset = sampleShakeOffset();
+  ctx.save();
+  ctx.translate(shakeOffset.x, shakeOffset.y);
   drawTopBar();
   drawChannel();
   drawSideWallsAndPits();
@@ -618,6 +784,7 @@ function draw(){
   drawCoins();
   drawParticles();
   drawTutorial();
+  ctx.restore();
 }
 
 let last=performance.now();

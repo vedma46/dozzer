@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -11,9 +12,41 @@
 </head>
 <body>
 <canvas id="gameCanvas" width="1080" height="1920"></canvas>
+<audio id="gameAudio" preload="auto" loop>
+  <source src="assets/slurp.mp3" type="audio/mpeg">
+  Your browser does not support the audio element.
+</audio>
 
 <script>
 (()=>{
+// ---------- Audio ----------
+const audioElement = document.getElementById('gameAudio');
+let audioPlayedOnce = false; // Флаг, чтобы воспроизвести музыку только один раз
+
+function handleFirstInteraction(e) {
+  if (!audioPlayedOnce) {
+    const playPromise = audioElement.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          console.log("Музыка запущена.");
+        })
+        .catch(error => {
+          console.log("Не удалось запустить музыку:", error);
+        });
+    }
+    audioPlayedOnce = true;
+    // Удаляем только обработчики, отвечающие за запуск музыки
+    cvs.removeEventListener('mousedown', handleFirstInteraction);
+    cvs.removeEventListener('touchstart', handleFirstInteraction, { passive: false });
+    // Добавляем оригинальные обработчики для дальнейшего взаимодействия
+    cvs.addEventListener('mousedown', handleInput);
+    cvs.addEventListener('touchstart', handleInput, { passive: false });
+  }
+  // Вызовите оригинальную функцию обработки ввода
+  handleInput(e);
+}
+
 // ---------- Layout ----------
 const W=1080,H=1920,TOP=140;
 
@@ -791,8 +824,8 @@ let last=performance.now();
 function loop(t){ const dt=(t-last)/1000; last=t; update(dt); draw(); requestAnimationFrame(loop); }
 
 // ---------- Boot ----------
-cvs.addEventListener('mousedown', handleInput);
-cvs.addEventListener('touchstart', handleInput, {passive:false});
+cvs.addEventListener('mousedown', handleFirstInteraction);
+cvs.addEventListener('touchstart', handleFirstInteraction, {passive:false});
 initCoins();
 addEventListener('load', ()=>{ resize(); last=performance.now(); requestAnimationFrame(loop); });
 addEventListener('resize', resize);
@@ -800,3 +833,4 @@ addEventListener('resize', resize);
 </script>
 </body>
 </html>
+```

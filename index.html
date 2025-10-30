@@ -98,22 +98,22 @@ let dzTop=H+80, dzPhase='push';
 let dzMode='normal';  // 'normal' | 'mega_push' | 'mega_back'
 let megaQueue=0;
 
-const POCKET_COIN_CAP = 5;
+const POCKET_COIN_CAP = 6;
 const MANUAL_DROP_LIMIT = 5;
 let manualSpawnThisCycle=0;
 
 let bank=101, regenActive=false, regenLeft=0, regenTick=0;
 
 // special coins timers
-const RED_SPAWN_INTERVAL   = 33;
-const GREEN_SPAWN_INTERVAL = 20;
-const BLUE_SPAWN_INTERVAL  = 120;
-const PURPLE_SPAWN_INTERVAL = 33;
+const RED_SPAWN_INTERVAL   = 55;
+const GREEN_SPAWN_INTERVAL = 22;
+const BLUE_SPAWN_INTERVAL  = 75;
+const PURPLE_SPAWN_INTERVAL = 45;
 let timeElapsed=0, nextRedAt=0, nextGreenAt=0, nextBlueAt=0, nextPurpleAt=PURPLE_SPAWN_INTERVAL;
 
 // blue booster effect
 let blueBoostActive=false, blueBoostLeft=0;
-const YELLOW_SIZE_BOOSTED = 80;
+const YELLOW_SIZE_BOOSTED = 88;
 const YELLOW_SIZE_NORMAL = 77;
 
 // purple wave effect
@@ -121,7 +121,7 @@ let purpleWaveActive=false;
 let purpleWaveFront=0;
 let purpleWaveId=0;
 const PURPLE_WAVE_SPEED = 1600;
-const PURPLE_WAVE_FORCE = 920;
+const PURPLE_WAVE_FORCE = 350;
 const PURPLE_WAVE_WIDTH = 360;
 const PURPLE_WAVE_DRAG = 0.82;
 
@@ -512,7 +512,7 @@ function triggerPurpleWave(){
   purpleWaveActive = true;
   purpleWaveFront = Y_BOTTOM + PURPLE_WAVE_WIDTH;
   purpleWaveId++;
-  triggerShake(0.65, 26);
+  triggerShake(2, 44);
 }
 
 function updatePurpleWave(dt){

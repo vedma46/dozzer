@@ -88,6 +88,10 @@ let dzTop=H+80, dzPhase='push';
 let dzMode='normal';  // 'normal' | 'mega_push' | 'mega_back'
 let megaQueue=0;
 
+const POCKET_COIN_CAP = 5;
+const MANUAL_DROP_LIMIT = 5;
+let manualSpawnThisCycle=0;
+
 let bank=101, regenActive=false, regenLeft=0, regenTick=0;
 
 // special coins timers
@@ -188,16 +192,32 @@ function drawParticles(){
 function spawnCoinAt(x,y,isRed=false,isGreen=false,isBlue=false){
   let r = physR(isRed, isGreen);
   const coin = {x,y,rPhys:r,vx:0,vy:0,isRed,isGreen,isBlue};
-  if(isBlue) coin.rotation = 0;
+  if(isBlue){
+    coin.rotation = 0;
+    coin.rotationVel = 0;
+    coin.prevHeading = null;
+  }
   coins.push(coin);
+}
+
+function countCoinsInPocket(){
+  let count=0;
+  for(const c of coins){
+    if(c.x>POCKET.x && c.x<POCKET.x+POCKET.w && c.y>POCKET.y && c.y<POCKET.y+POCKET.h){
+      count++;
+    }
+  }
+  return count;
 }
 
 function trySpawn(e){
   e.preventDefault();
   const {x,y}=toGame(e);
   if(x<POCKET.x||x>POCKET.x+POCKET.w||y<POCKET.y||y>POCKET.y+POCKET.h) return;
+  if(countCoinsInPocket()>=POCKET_COIN_CAP) return;
+  if(manualSpawnThisCycle>=MANUAL_DROP_LIMIT) return;
   if(bank<=0){ startRegen(); return; }
-  bank--; spawnCoinAt(x,y,false,false); if(bank===0) startRegen();
+  bank--; spawnCoinAt(x,y,false,false); manualSpawnThisCycle++; if(bank===0) startRegen();
 }
 
 function handleInput(e){
@@ -261,6 +281,8 @@ function circleVsSegment(c, A,B, push=8){
 }
 
 // ---------- Update ----------
+function resetManualSpawnLimit(){ manualSpawnThisCycle=0; }
+
 function updDozer(dt){
   if(dzMode==='mega_push'){
     dzTop -= DZ_PUSH_V*dt*1.15;
@@ -271,13 +293,14 @@ function updDozer(dt){
     dzTop += DZ_BACK_V*dt*1.15;
     if(dzTop > DZ_TOP_MIN){
       dzTop=DZ_TOP_MIN;
+      resetManualSpawnLimit();
       if(megaQueue>0){ megaQueue--; dzMode='mega_push'; }
       else { dzMode='normal'; dzPhase='push'; }
     }
     return;
   }
   if(dzPhase==='push'){ dzTop-=DZ_PUSH_V*dt; if(dzTop<DZ_TOP_MAX){dzTop=DZ_TOP_MAX; dzPhase='back';}}
-  else{ dzTop+=DZ_BACK_V*dt; if(dzTop>DZ_TOP_MIN){dzTop=DZ_TOP_MIN; dzPhase='push';}}
+  else{ dzTop+=DZ_BACK_V*dt; if(dzTop>DZ_TOP_MIN){dzTop=DZ_TOP_MIN; dzPhase='push'; resetManualSpawnLimit();}}
 }
 
 function spawnSixPocketCoins(){
@@ -334,8 +357,6 @@ function updCoins(dt){
     c.y += c.vy*dt; c.x += c.vx*dt;
     c.vx *= Math.pow(FRICTION_X, 60*dt);
     c.vy *= Math.pow(FRICTION_Y, 60*dt);
-    if(c.isBlue) c.rotation += c.vx * 0.015;
-
     if(c.y<=Y_TOP){
       c._collect=true;
       spawnParticles(c.x,c.y);
@@ -396,6 +417,39 @@ function separateCoins(){
         }
       }
     }
+  }
+}
+
+function updateBlueRotations(dt){
+  const motionDamping = Math.pow(0.88, 60*dt);
+  const restDamping = Math.pow(0.4, 60*dt);
+  const torqueScale = 0.45;
+  const maxSpin = 2.2;
+  for(const c of coins){
+    if(!c.isBlue) continue;
+    if(typeof c.rotation !== 'number') c.rotation = 0;
+    if(typeof c.rotationVel !== 'number') c.rotationVel = 0;
+
+    const speed = Math.hypot(c.vx, c.vy);
+    if(speed > 5){
+      const heading = Math.atan2(c.vy, c.vx);
+      if(typeof c.prevHeading === 'number'){
+        let delta = heading - c.prevHeading;
+        delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+        const radius = c.rPhys || COIN_R_PHYS;
+        const torque = delta * (speed / radius);
+        c.rotationVel += torque * torqueScale * dt;
+      }
+      c.prevHeading = heading;
+      c.rotationVel *= motionDamping;
+    }else{
+      c.prevHeading = null;
+      c.rotationVel *= restDamping;
+      if(Math.abs(c.rotationVel) < 0.02) c.rotationVel = 0;
+    }
+    if(c.rotationVel>maxSpin) c.rotationVel=maxSpin;
+    else if(c.rotationVel<-maxSpin) c.rotationVel=-maxSpin;
+    c.rotation += c.rotationVel * dt;
   }
 }
 
@@ -548,6 +602,7 @@ function update(dt){
   updCoins(dt);
   collideEnv();
   separateCoins();
+  updateBlueRotations(dt);
   updParticles(dt);
   updateRegen(dt);
   updateTopBarFX(dt);

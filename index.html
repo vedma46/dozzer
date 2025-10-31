@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -171,6 +170,20 @@ const BAR_ANIM_DUR = 1.2;
 const twinkles = [];
 const barBursts = [];
 const TWINKLE_COUNT = 22;
+
+// --- Загрузка изображения дозера ---
+let dozerImage = new Image();
+dozerImage.src = 'assets/dozer.png'; // Укажите путь к вашему файлу
+let dozerImageLoaded = false;
+
+dozerImage.onload = function() {
+    console.log("Изображение дозера загружено.");
+    dozerImageLoaded = true;
+};
+dozerImage.onerror = function() {
+    console.error("Не удалось загрузить изображение дозера. Проверьте путь assets/dozer.png");
+    // dozerImageLoaded останется false, и дозер будет отрисовываться как прямоугольник
+};
 
 function initTopBarStars(){
   twinkles.length=0;
@@ -695,7 +708,18 @@ function drawDock(){
   ctx.fillRect(POCKET.x, POCKET.y, POCKET.w, POCKET.h);
 }
 
-function drawDozer(){ ctx.fillStyle="#75f80c"; ctx.fillRect(DZ_X,dzTop,DZ_W,DZ_H); }
+function drawDozer(){
+    if(dozerImageLoaded) {
+        // Рассчитываем высоту изображения, чтобы сохранить пропорции
+        const scaledHeight = (dozerImage.height / dozerImage.width) * DZ_W;
+        // Рисуем изображение, выравнивая его по нижнему краю DZ_H
+        ctx.drawImage(dozerImage, DZ_X, dzTop + DZ_H - scaledHeight, DZ_W, scaledHeight);
+    } else {
+        // Если изображение не загружено, рисуем прямоугольник как резервный вариант
+        ctx.fillStyle="#75f80c";
+        ctx.fillRect(DZ_X, dzTop, DZ_W, DZ_H);
+    }
+}
 
 function drawCoins(){
   for(const c of coins){
@@ -833,4 +857,3 @@ addEventListener('resize', resize);
 </script>
 </body>
 </html>
-```
